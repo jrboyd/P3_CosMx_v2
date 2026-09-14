@@ -1,0 +1,257 @@
+---
+title: "Cell identity: two callers, one substrate"
+subtitle: "CosMx 6K, P3_CosMx_v2 — step 19. What each label rests on, and what it cannot carry."
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    toc_depth: 3
+    number_sections: true
+    code_folding: hide
+    theme: flatly
+    self_contained: true
+    mathjax: null
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE,
+                      fig.align = "center", dpi = 110)
+knitr::opts_knit$set(root.dir = "/gpfs1/pi/avolaric/files_jrboyd/P3_CosMx_v2")
+suppressPackageStartupMessages({library(data.table); library(ggplot2); library(knitr)})
+setDTthreads(1)
+ROOT <- "/gpfs1/pi/avolaric/files_jrboyd/P3_CosMx_v2"
+## Guarded reads, as in steps 13 and 16: a missing intermediate degrades one block, never
+## the render. Everything unavailable is listed in the appendix.
+MISSING <- character()
+rd <- function(p, ...) {
+  f <- file.path(ROOT, p)
+  if (!file.exists(f)) { MISSING <<- c(MISSING, p); return(NULL) }
+  tryCatch(fread(f, ...), error = function(e) { MISSING <<- c(MISSING, p); NULL })
+}
+img <- function(p, cap = NULL) {
+  f <- file.path(ROOT, p)
+  if (!file.exists(f)) { MISSING <<- c(MISSING, p); return(invisible(NULL)) }
+  knitr::include_graphics(f, rel_path = FALSE)
+}
+kb <- function(d, ...) if (!is.null(d) && nrow(d)) knitr::kable(d, ...) else invisible(NULL)
+fm <- function(x) format(x, big.mark = ",")
+```
+
+# What this step is for
+
+Four names for a cell were in circulation before this step — `inSitu_clusters`,
+`pearson_clusters_low/high`, the step-09b audited labels, and the step-16 argmax `celltype` —
+they disagreed, and nothing recorded which one a given claim rested on.
+
+Step 19 keeps **two** concepts on purpose, because they answer different questions and fail
+in different ways:
+
+- **`celltype_argmax`** — direct per-cell marker evidence. Independent of clustering and of
+  QC tier. Silent on most cells.
+- **`celltype_cluster`** — guilt by association. A cell with no marker transcripts meeting
+  the argmax cutoffs still co-clusters with cells that do, and inherits their name.
+
+Both are needed, and the reason is measurable: **43.4% of the high-confidence set gets no
+argmax call at all**. Marker evidence alone leaves nearly half the tissue unnamed. They are
+carried as separate columns so no figure can silently mix them; where they disagree, that is
+information, not a defect to be reconciled away.
+
+# The substrate
+
+```{r hc-set}
+md <- rd("output/16_regions/cells_meta_all.csv.gz",
+         select=c("cell_id","samp","is_defect","tier_matched"))
+lab <- rd("output/19_celltypes/hc_cells_final.csv.gz", na.strings=c("NA",""))
+if (!is.null(md) && !is.null(lab))
+  kb(data.table(
+    stage = c("all cells", "symmetric QC tier & non-defect", "less the low-information floor"),
+    cells = fm(c(nrow(md), md[tier_matched & !is_defect, .N], nrow(lab)))),
+    caption = "Building the high-confidence object")
+```
+
+The tier is **`tier_matched`** — `qc_spatial_fovpx == "ok" & qcCellsPassed` — deliberately
+excluding the staining rule that cost IB1 2,013,225 cells and was never evaluated for RB1.
+Any other tier contaminates every IB1-vs-RB1 statement.
+
+**Defect cells are dropped per cell, before clustering, and that is the whole design.**
+`09c_script_cluster_consistency.R` showed that pooling launders defect tissue into a lineage
+label: merged cluster 1 was 93.6% IB1 cells that IB1's own audit calls `defect_dominated` at
+70.1% defect, but pooling diluted that to 42% — under the `DEFECT_MAX` guard — so it escaped
+and became "Neutrophil". With no defect cells present there is nothing to dilute. This is why
+`CLAUDE.md`'s ban on merged labels does not apply to this object, and only to this object.
+
+A further **60,269 cells (2.93%)** fail a per-cell low-information floor (`nCount >= 50 &
+nFeature >= 30`), added after a first build put 159 near-empty cells at UMAP1 ≈ −18 while
+99.99% of the object lay between −4.4 and +4.2 — stretching the axis to 4.5× the width the
+data needed. They are not lost: they fall to the rescue tier.
+
+## The gate
+
+No cell type was called until the clustering came back clean. The gate asks whether a **large
+cluster is resolution-poor**, judged on evidence about cells rather than on cluster
+membership, and it **passes at both resolutions**.
+
+```{r gate}
+kb(rd("output/19_celltypes/hc_cluster_health_high.csv")[
+     , .(cl, cells, pct, pct_IB1, frac_resolved, med_nCount, negrate, top, purity, status = ifelse(junk, "junk", ""))][1:8],
+   caption = "Cluster health, resolution 0.8 (first 8 by size)")
+```
+
+The gate shipped **broken** on its first run and reported a vacuous PASS: its negprobe term
+was a median of per-cell ratios, and `nCount_negprobes` is nonzero in only 21.8% of cells, so
+that median is 0 everywhere and `negrate > baseline` read `0 > 0` — false always, inside an
+AND. It now uses the pooled ratio and two conditions rather than a four-way AND, which is not
+a strict test but an unreachable one.
+
+# The vocabulary
+
+```{r vocab}
+if (!is.null(lab)) {
+  v <- lab[!is.na(celltype_cluster), .(cells = .N), by = celltype_cluster][order(-cells)]
+  v[, `% of high-confidence` := round(100*cells/sum(cells), 2)][, cells := fm(cells)]
+  kb(v, caption = "Ten labels, covering 100% of the high-confidence set")
+}
+```
+
+Six come from **argmax composition** — the modal per-cell call among a cluster's resolved
+cells. Two required rules the coarse marker sets could not express, and two are refinements:
+
+- **pDC** and **Hodgkin chemokine niche** were the two largest *unnamed* clusters. Neither has
+  a family in `LINEAGE_SETS_COARSE`, so argmax could never call them: pDCs express MZB1 and
+  IRF4 and were split evenly between the PC and B sets (purity 0.227 vs 0.225). They are named
+  by cluster-level **module rules**, applied only where argmax composition left the cluster
+  unnamed, so a module score can never override per-cell evidence that already succeeded.
+- **Plasmablast** was separated from Plasma cell after the label proved to occupy two distinct
+  positions in the embedding.
+
+**The Hodgkin chemokine niche is a REGION, not a cell type** (`is_niche = TRUE`). Per-cell HRS
+calling is a closed avenue on this panel — TNFRSF8 maxes at 6 counts with 78% singletons — so
+it is barred from cell-type statements while preserving what is arguably IB1's most important
+biology.
+
+Two scoring lessons are built in. **Purity is the wrong yardstick for a minor lineage**: the
+object is ~50% B among resolved cells, so NK could not exceed ~0.34 purity and was losing its
+label entirely; enrichment over the family baseline is capped at 1/baseline and cannot certify
+the *dominant* family, so a cluster now qualifies on **either** route. And the **FDC rule needs
+three conditions**: CR2/FCER2 over B_core inflates wherever B signal is thin, and on a first
+pass relabelled a 102,783-cell cluster with argmax B purity 0.806 as FDC.
+
+# Validation
+
+```{r heldout}
+img("output/19_celltypes/figures/marker_heatmap.png")
+```
+
+Panel A is circular by construction — those genes named the labels. **Panel B is the
+evidence**: canonical markers no step-19 rule ever looked at. Every one of the ten labels tops
+its own held-out set. **Plasmablast ranks second on *both* parent sets** (B 4.68 behind B cell
+5.11; plasma 1.52 behind Plasma cell 1.89), which is the signature of a genuine intermediate
+and could not have arisen if it were a mislabelled subset of either.
+
+```{r composition}
+img("output/19_celltypes/figures/composition_figure.png")
+```
+
+Panel C opens each label up. Agreement with argmax runs **66.2%** across the high-confidence
+set, and where it is low the reason is legible rather than mysterious.
+
+## Cross-sample marker comparisons need matched cells
+
+```{r bdisc}
+kb(rd("output/19_celltypes/b_discrepancy_slopes.csv"),
+   caption = "Within-IB1 gradient: slope of B-marker signal on the non-B neighbour fraction")
+```
+
+The by-sample heatmap initially showed IB1's B markers far weaker than RB1's. That is **the
+label, not the biology**: IB1's B label is 14.8% argmax-confirmed at a median 221 counts,
+against RB1's 51.3% at 658. Restricted to confirmed cells IB1's share is *higher* (73.6 vs
+68.3); depth-matched it settles at ~10–15% lower, consistently.
+
+**Dilution was the leading hypothesis and it is refuted.** Dilution predicts share falling
+while count holds; the observed pattern is the opposite — absolute count falls significantly
+(−1.11 [−1.41, −0.77]) while share does not move. The pooled figure is preserved as
+`*_v1_POOLED_SUPERSEDED.png` with `README_marker_heatmap_versions.md` beside it.
+
+# The rescue
+
+```{r rescue}
+kb(rd("output/19_celltypes/all_cells_celltypes.csv.gz", select=c("cell_id","confidence"))[
+     , .(cells = fm(.N)), by = confidence][order(-nchar(cells), cells)],
+   caption = "Every cell in the study, by confidence class")
+```
+
+Cells outside the high-confidence object are projected into its PCA and take a 25-nearest-
+neighbour vote. **Expression space only — never spatial**, because a spatial vote manufactures
+exactly the halo artefact step 18 measured.
+
+Two gates were fixed in the script before any numbers were seen. Gate A (held-out
+high-confidence cells against their own cluster label) passed at **0.863**. Gate B (rescued
+cells against argmax, where argmax resolves) read **0.417** pooled and rejected everything —
+but pooled it was averaging two populations that behave nothing alike:
+
+```{r gateb}
+kb(data.table(stratum = c("non-defect", "defect"),
+              agreement = c(0.677, 0.270),
+              `median nCount` = c(475, 623),
+              verdict = c("ships", "withheld")),
+   caption = "Gate B per stratum (threshold 0.50; the two callers agree at 0.662 inside the high-confidence object)")
+```
+
+Applied per stratum it recovers **714,708 cells**, taking labelled coverage to **61.5%**.
+Note the depths: defect cells are *deeper* than the non-defect cells that succeed. Their reads
+are not scarce, they are wrong — which is also why **imputation is not the remedy**, and why
+agreement stays flat at 0.26–0.29 across a 7× depth span.
+
+~370k of the shipped labels are validated by extrapolation from their stratum rather than
+directly, since only cells with an argmax call can be checked. The `rescued` tag marks them.
+
+# Where things are
+
+```{r spatial-ct}
+img("output/19_celltypes/figures/celltype_spatial.png")
+```
+
+```{r spatial-qc}
+img("output/19_celltypes/figures/qc_spatial.png")
+```
+
+**IB1's over-fixation defect forms a peripheral rim** — fixative penetrating from the outside
+in — while **the QC-tier failures form an FOV grid**, a tiling artefact. Different mechanisms,
+and the rescue recovers the grid while correctly leaving the rim alone. IB1's maps therefore
+stay sparse at the section margins and are well covered in the cores.
+
+Each panel is scaled to its own type, with the ceiling printed in the strip: **colour is not
+comparable between panels**, only pattern within one. That was the only way to keep minor
+types visible when B reaches 89% of a bin in RB1.
+
+# What this step cannot support
+
+- **A cluster-level plasma-cell claim without conditioning.** The halo test flagged Plasma
+  cell at 12.7×, and the flag was wrong: conditioning on the cell's own light chain collapsed
+  it to 1.6×. Rising lines in that test are the *expected null* — cell types cluster, so a
+  cell with no markers beside a marker-rich neighbour genuinely is more likely to be that type
+  with dropout. A high fold now sets `needs_conditioning`, never `halo_suspect`.
+- **T-cell subsets from clustering.** Tested three ways and it fails every time; T stays a
+  single label and Tfh comes from the per-cell argmax subsets, as step 16 already does.
+- **Any label for the 1.65M over-fixation-defect cells.** They are `unresolved` and should
+  stay so.
+- **Per-cell leakage correction of any kind.** Every candidate score is at chance
+  (AUC 0.35–0.61). Leakage is real at the population level and unmeasurable per cell.
+- **Cross-sample marker comparisons on pooled label cells.** Use argmax-confirmed cells within
+  depth strata.
+
+# Methods
+
+```{r methods-child, child="scripts/lib/methods_notes.Rmd"}
+```
+
+# Appendix: inputs not found at render time
+
+```{r missing}
+if (length(MISSING)) kb(data.table(missing = unique(MISSING))) else
+  cat("All inputs were present.\n")
+```

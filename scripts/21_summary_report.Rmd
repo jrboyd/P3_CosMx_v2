@@ -1,0 +1,605 @@
+---
+title: "The FL/Hodgkin interface"
+subtitle: "CosMx 6K, P3_CosMx_v2 — step 21. Does the follicular lymphoma change where the Hodgkin field reaches it?"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    toc_depth: 3
+    number_sections: true
+    code_folding: hide
+    theme: flatly
+    self_contained: true
+    mathjax: null
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE,
+                      fig.align = "center", dpi = 110)
+knitr::opts_knit$set(root.dir = "/gpfs1/pi/avolaric/files_jrboyd/P3_CosMx_v2")
+suppressPackageStartupMessages({library(data.table); library(ggplot2); library(knitr)})
+setDTthreads(1)
+ROOT <- "/gpfs1/pi/avolaric/files_jrboyd/P3_CosMx_v2"
+TIER <- "matched"
+IF   <- file.path("output/21_interface", TIER)
+## Guarded reads, as in steps 13, 16, 17 and 19: a missing intermediate degrades one block,
+## never the render. Everything unavailable is listed in the appendix.
+MISSING <- character()
+rd <- function(p, ...) {
+  f <- file.path(ROOT, p)
+  if (!file.exists(f)) { MISSING <<- c(MISSING, p); return(NULL) }
+  tryCatch(fread(f, ...), error = function(e) { MISSING <<- c(MISSING, p); NULL })
+}
+img <- function(p) {
+  f <- file.path(ROOT, p)
+  if (!file.exists(f)) { MISSING <<- c(MISSING, p); return(invisible(NULL)) }
+  knitr::include_graphics(f, rel_path = FALSE)
+}
+kb <- function(d, ...) if (!is.null(d) && nrow(d)) kable(d, ...) else invisible(NULL)
+fm <- function(x) format(x, big.mark = ",")
+## Every number below is pulled from these artifacts rather than typed in, so the prose
+## cannot drift from the results.
+GV  <- rd(file.path(IF, "gate_verdict.csv"))
+AV  <- rd(file.path(IF, "arrangement_verdict.csv"))
+ADJ <- rd(file.path(IF, "arrangement_null_adjudication.csv"))
+BA  <- rd(file.path(IF, "axisB_balance.csv"))
+AA  <- rd(file.path(IF, "axisA_balance.csv"))
+PZ  <- rd(file.path(IF, "tissue_pieces.csv"))
+T1  <- rd(file.path(IF, "interface_tier1.csv"))
+PW  <- rd(file.path(IF, "interface_power.csv"))
+DQ  <- rd(file.path(IF, "defect_qc_verdict.csv"))
+DB  <- rd(file.path(IF, "defect_burden_by_region.csv"))
+DVE <- rd(file.path(IF, "defect_vs_exposure.csv"))
+DAS <- rd(file.path(IF, "defect_adjustment_shift.csv"))
+DEG <- rd(file.path(IF, "defect_edge_geometry.csv"))
+CSH <- rd(file.path(IF, "composition_share.csv"))
+RS  <- rd(file.path(IF, "interface_response.csv.gz"))
+g  <- function(col, d = GV) if (!is.null(d) && col %in% names(d)) d[[col]][1] else NA
+hits <- if (!is.null(RS)) RS[verdict == "FL-SPECIFIC FIELD RESPONSE"] else NULL
+h1 <- if (!is.null(hits)) hits[tier == "T1_declared"] else NULL
+h2 <- if (!is.null(hits)) hits[tier == "T2_genomewide"] else NULL
+```
+
+```{css, echo=FALSE}
+.table { font-size: 0.86em; }
+details { background:#f6f5f1; border-left:3px solid #c3c2b7; padding:.6em 1em; margin:1em 0; }
+summary { cursor:pointer; font-weight:600; color:#52514e; }
+.verdict-ok  { border-left:4px solid #1baf7a; padding:.5em 1em; background:#f2faf6; margin:1em 0; }
+.verdict-no  { border-left:4px solid #eb6834; padding:.5em 1em; background:#fdf4ef; margin:1em 0; }
+.verdict-mid { border-left:4px solid #2a78d6; padding:.5em 1em; background:#f1f6fc; margin:1em 0; }
+```
+
+# The question, and the one-paragraph answer
+
+**IB1** is a composite lymph node from one patient: classic Hodgkin lymphoma together with
+follicular lymphoma. Steps 07–13 localised both lesions inside it and concluded there is
+**"no spatial relationship between the two diseases"**. That is a headline claim about the
+one thing a composite node is uniquely able to answer, and it rested on a single test.
+Step 17 later named the design that would settle the question properly — *"a within-IB1
+design comparing FL tissue near and far from the Hodgkin field, which needs no cross-sample
+subtraction"* — and it had not been run. **This step is that design.**
+
+It matters that the design is within-IB1. Every cross-sample route is closed: the
+IB1-vs-RB1 FL contrast is not identifiable (2 of 89 bins find a composition-matched
+partner), and for the exhaustion and chemokine genes the between-slide offset exceeds every
+within-slide regional effect. A contrast computed inside one sample, one section and one
+cell type at a time carries no slide term, no composition term and nothing to subtract.
+
+```{r headline, results="asis"}
+if (!is.null(GV) && !is.null(AV)) {
+  n_h1 <- if (is.null(h1)) NA else nrow(h1)
+  cat(sprintf('
+<div class="verdict-mid">
+**Three results, and the first one is a method correction.**
+
+**The intuitive axis does not work, and finding that out was the point of running a gate
+first.** Distance from FL tissue to the nearest Hodgkin hotspot *looks* like the exposure
+axis and is what step 12 used. It fails its own positive control: CCL17+CCL22 inside FL
+tissue is **%.1f cp10k in the near half against %.1f in the far half** — the wrong way round —
+and field exposure is uncorrelated with distance-to-hotspot across the FL fields of view
+(rho = **%.3f**, *p* = %.2f). The cause is that the hotspots are the top 1%% of chemokine
+bins and do not enumerate the field\'s sources, which step 17 had already flagged. The axis
+that works is each bin\'s **own** local field level, which spans **%.0fx** across the FL
+fields of view.
+
+**The arrangement of the two lesions is UNRESOLVED, and step 13\'s clean null does not
+survive scrutiny even though its verdict does.** Against a null that relocates the Hodgkin
+foci at random while preserving their number, sizes and internal clustering, the observed
+hotspot-to-FL distance of **%d um** sits against a null median of **%d um**
+(*p* = **%.2f**). But the real hotspots sit in more over-fixation-depleted, more peripheral
+tissue than average, and defect burden rises with distance to the FL foci -- so a uniform
+null relocates them into tissue intrinsically closer to the FL. Matching the null on defect
+burden moves the null median to **%s um** and the two directions to *p* = **%s** and
+**%s**. Nothing reaches significance either way, so step 13\'s verdict stands; the claim
+that it is a *clean* null does not.
+
+**Inside FL tissue, the field response is not distinguishable from ordinary IB1 tissue --
+in expression or in composition.** Of 44 pre-declared genes tested in each of three cell
+types, **%s** show an FL-specific field response; nor does any of six cell types shift its
+composition differently (all *q* >= 0.46, share-based and adjusted for over-fixation burden).
+The genome-wide tier returns **%s** genes and this report declines to interpret them: they sit
+on the detection floor, form no programme, and include *CD3D* called down in B cells while
+*CD3E* and *TRAC* do not move. At 20-22 FL fields of view the median resolvable effect is
+1.09-1.14 fold, so **this is a bounded null, not a demonstration that the FL is indifferent
+to the field.**
+</div>',
+    g("axisA_chemo_near"), g("axisA_chemo_far"),
+    g("axisA_rho_exposure_vs_dist"), g("axisA_p"), g("axisB_spread_fold"),
+    g("obs_h2f_um", AV), g("nullR_h2f_med", AV), g("nullR_h2f_p", AV),
+    as.character(g("nullRd_h2f_med", AV)), as.character(g("nullRd_h2f_p", AV)),
+    as.character(g("nullRd_f2h_p", AV)),
+    if (is.na(n_h1)) "an unknown number of" else as.character(n_h1),
+    if (is.null(h2)) "an unknown number" else as.character(nrow(h2))))
+}
+```
+
+# What is being replaced
+
+<div class="verdict-no">
+**Step 13's claim rests entirely on one test in step 12**, and it has three defects that all
+push toward a null that was never really tested.
+
+`output/12_fl_vs_hodgkin/IB1_fl_vs_hodgkin_distance_postqc.csv` holds the whole of it: the
+distance from each Hodgkin hotspot bin to the nearest FL-like focus (median 1,035 um)
+against the same distance for non-hotspot bins (1,205 um), Wilcoxon *p* = 0.233, on
+**11 FL foci**. Note the direction — the hotspots were nominally *closer*.
+
+1. **The unit is the bin.** Bins inside one field of view are not independent, and both
+   lesions are spatially clustered.
+2. **The comparison set is unmatched.** A bin can only *be* a hotspot if it carries enough
+   cells for a stable cp10k, so "non-hotspot bins" have a different propensity to be
+   labelled at all.
+3. **Tissue geometry is ignored.** Both lesions can only occur where tissue is, and IB1 is
+   in three pieces.
+</div>
+
+<div class="verdict-mid">
+**One of those three turns out not to matter, and saying so is part of the correction.**
+Recomputing step 12's own statistic with the **field of view** as the unit — pairing each
+FOV's hotspot bins against its own other bins — gives
+*p* = **`r g("step12_fov_paired_p", AV)`** against the published
+**`r g("step12_bin_p_reported", AV)`**. The unit choice was *not* what produced that null;
+it was null either way. The defects that mattered were the unmatched reference and the
+absence of a geometry-preserving null.
+</div>
+
+# Axis selection, which is a result in its own right
+
+Nothing was contrasted until an axis had passed a gate. The project has already lost a
+design to non-identifiability discovered *after* the contrast was computed — step 16's C3
+and C4, where 2 of 89 FL bins found a composition-matched partner and the
+difference-in-differences meant to rescue it was withdrawn. So the question here was asked
+in the other order: does a contrast exist, and on what axis?
+
+```{r axis-fig}
+img(file.path(IF, "figures/fig_21_axis_selection.png"))
+```
+
+```{r axis-tables}
+kb(AA[, .(variable, near = hi, far = lo, smd, p_wilcox, flag)],
+   caption = "AXIS A (distance to hotspot): balance of the near/far strata, FOV means")
+kb(BA[, .(variable, high = hi, low = lo, smd, p_wilcox, flag)],
+   caption = "AXIS B (own field level): balance of the low/high strata, FOV means")
+```
+
+<div class="verdict-no">
+**AXIS A — distance to the nearest hotspot — is REJECTED.** It passes the geometric part of
+the gate: the `r g("fl_bins")` FL bins in `r g("fl_fovs")` fields of view split into
+`r g("fovs_near", GV)`/`r g("fovs_far", GV)` arms whose median distances differ by
+**`r g("axisA_sep_um")` um**, more than one field length. It fails the part that matters.
+The chemokines that *define* the field are **`r g("axisA_chemo_near")` cp10k** in the near
+arm and **`r g("axisA_chemo_far")`** in the far arm, and across the FL fields of view
+exposure and distance are uncorrelated (rho = `r g("axisA_rho_exposure_vs_dist")`,
+*p* = `r g("axisA_p")`). An axis that does not order the thing it is supposed to measure
+cannot carry a contrast.
+
+**Why it fails, and it is not the tissue pieces.** Two candidate causes were separable and
+were separated. Cross-piece Euclidean distance — which is not a diffusion path — turns out
+to affect **0%** of FL bins, so that is not it. What is left is the source set: the hotspots
+are IB1's top 1% of chemokine bins, and only **`r g("hotspot_bins")` of the 80** survive the
+low-information filter. Step 17 had already written down that distance-to-peak is *"blind by
+construction, since the peaks are only the top 1% of chemokine bins, not all HRS
+locations"*. FL fields of view 693 and 694 make it concrete: ~3,000 um from any hotspot,
+carrying 37 and 77 cp10k.
+</div>
+
+<div class="verdict-ok">
+**AXIS B — each bin's own field level — is USABLE**, and is the axis
+`16_script_field_gradient.R` already used successfully for eight pre-declared genes. Across
+the FL fields of view it spans **`r g("axisB_spread_fold")`x**, from below IB1's field cut
+(11.4 cp10k) to well above it without reaching the hotspot cut (176.1). The split is at the
+FL fields' own median, so the arms are balanced in count by construction and the threshold
+is not tuned to any outcome.
+</div>
+
+<div class="verdict-mid">
+**One imbalance shapes the whole downstream design.** On axis B, field exposure and B-cell
+share are collinear inside FL tissue — `fb_a` SMD **`r g("axisB_fb_a_smd")`**. This is not
+news: `CLAUDE.md` fact 4 already records that IB1's B-dense tissue is where the Hodgkin
+chemokines concentrate. The consequence is that **cell-type conditioning is mandatory here,
+not a refinement**. A bin-level contrast on this axis would re-measure B share, which is
+exactly how step 16's C3 contrast failed — it returned RB1's interfollicular markers as
+"up in IB1 FL".
+</div>
+
+```{r pieces}
+kb(PZ, caption = "IB1's tissue pieces. Piece 4 carries hotspots and no FL; distances across the gaps between pieces are not diffusion paths.")
+```
+
+# Are the two lesions arranged dependently?
+
+```{r arr-fig}
+img(file.path(IF, "figures/fig_21_arrangement.png"))
+```
+
+Two statistics, both directions, with the tissue mask held fixed by construction, against
+two nulls that fail in opposite ways.
+
+<div class="verdict-no">
+**This result is BRACKETED, not settled, and the over-fixation defect is why.** Two
+defensible nulls give different answers, and the difference is not noise — it is the rim
+geometry of the defect. Read both before drawing a conclusion.
+</div>
+
+<div class="verdict-mid">
+**NULL R — uniform focus relocation — is null.** The
+`r g("n_hotspots", AV)` hotspot bins form `r g("nullR_foci", AV)` connected foci; each focus
+keeps its size and internal shape and is re-sited at a random occupied bin.
+Hotspot-to-nearest-FL is **`r g("obs_h2f_um", AV)` um** observed against a null median of
+`r g("nullR_h2f_med", AV)` um, 95% interval
+[`r g("nullR_h2f_lo", AV)`, `r g("nullR_h2f_hi", AV)`], ***p* = `r g("nullR_h2f_p", AV)`**.
+The reverse direction, FL-to-nearest-hotspot, gives `r g("obs_f2h_um", AV)` um against
+`r g("nullR_f2h_med", AV)`, *p* = `r g("nullR_f2h_p", AV)`. Both observed values sit slightly
+below the null median — the lesions are marginally closer than chance — and nowhere near
+significance. **But this null sites foci uniformly over occupied tissue, and the real
+hotspots do not sit in average tissue.**
+</div>
+
+<div class="verdict-no">
+**NULL Rd — defect-matched relocation — moves the answer toward co-location.** Restricting
+the siting pool to bins whose defect fraction falls inside the observed hotspots' own
+interquartile range gives a null median of **`r g("nullRd_h2f_med", AV)` um** against the
+same observed `r g("obs_h2f_um", AV)` — ***p* = `r g("nullRd_h2f_p", AV)`** — and in the
+reverse direction `r g("nullRd_f2h_med", AV)` um against `r g("obs_f2h_um", AV)`,
+***p* = `r g("nullRd_f2h_p", AV)`**. Neither reaches significance, but both move a long way
+from NULL R's `r g("nullR_h2f_p", AV)` and `r g("nullR_f2h_p", AV)`.
+
+**Why NULL Rd is arguably the better test of *dependence*.** The question is whether the two
+lesions are arranged dependently, and each pattern's own marginal geography should therefore
+be held fixed. The hotspots' marginal geography is not average: they sit in tissue with a
+median defect fraction of
+`r if (!is.null(DEG)) DEG[bin_region=="cHL_hotspot", med_defect] else NA` against the FL
+foci's `r if (!is.null(DEG)) DEG[bin_region=="FL_focus", med_defect] else NA`, and they are
+edge-biased (Wilcoxon *p* = `r g("p_hotspot_vs_bg_edge", DQ)`). And defect burden is
+confounded with the outcome: it rises with distance to the nearest FL focus
+(rho = **`r g("rho_defect_dist_to_fl", DQ)`**, *p* = `r g("p_defect_dist_to_fl", DQ)`),
+because it is largely a rim effect (rho with distance to the tissue edge =
+**`r g("rho_defect_edge", DQ)`**). So a uniform null relocates the hotspots into tissue that
+is *intrinsically closer to the FL* than the tissue they actually occupy, which makes the
+observed distance look ordinary.
+
+**Why it is not simply adopted.** Defect fraction is close to a proxy for distance to the
+section edge, so conditioning on it also conditions on absolute position. If the hotspots'
+peripheral bias is biological rather than technical, NULL Rd removes some real signal along
+with the artifact — and this data cannot separate those, which is the same wall as the
+unattributed far-field residual in `CLAUDE.md` fact 3.
+</div>
+
+<div class="verdict-mid">
+**What to carry forward.** Step 13's "no spatial relationship between the two diseases" is
+**not overturned** — no test here reaches significance in either direction. But it is no
+longer a clean null: under the null that matches the hotspots' own tissue geography the
+observed distances are shorter than chance at *p* = `r g("nullRd_f2h_p", AV)`, and the
+honest statement is that **the arrangement of the two lesions is unresolved at this sample
+size**, with the over-fixation rim as the reason it cannot be settled rather than a nuisance
+to be adjusted away. Resolving it wants more FL tissue in a section without the fixation
+gradient.
+</div>
+
+<details>
+<summary>A rigid rotation was tried first and is not usable on this section</summary>
+The natural null is to rotate the whole hotspot pattern within the tissue mask. It gives
+**0 of 5,000 admissible draws**: the primary tissue piece fills only about a third of its own
+bounding box, so a 23-point pattern spanning the piece never lands back on tissue. Relocating
+foci one at a time fits because each focus is a few bins across. A null with no admissible
+draws is a broken null, not a negative result, and was replaced rather than reported.
+</details>
+
+<div class="verdict-no">
+**NULL P — label permutation — gives a nominally significant *p* = `r g("nullP_h2f_p", AV)`,
+and it is an artifact of the null.** The permutation reassigns the hotspot label among bins
+matched on cell count and depth, which destroys the clustering it ought to hold fixed. That
+was a prediction, and it is checkable on the drawn patterns themselves.
+
+```{r adj}
+kb(ADJ, caption = "Mean nearest-neighbour spacing WITHIN the hotspot pattern. A valid null reproduces the observed value.")
+```
+
+NULL R reproduces the observed within-pattern spacing to
+**`r if (!is.null(ADJ)) round(100*ADJ$ratio_to_observed[2]) else NA`%**; NULL P inflates it
+by **`r if (!is.null(ADJ)) round(100*(ADJ$ratio_to_observed[3]-1)) else NA`%**. Spreading the
+hotspots out puts them farther from everything, the FL foci included, which is where the
+short-looking observed value comes from. **This is the same class of error as the
+pseudoreplication rule** — a statistic is only as good as the thing its null holds fixed.
+</div>
+
+<div class="verdict-mid">
+**What the nulls could have detected.** The 95% interval for hotspot-to-FL under NULL R is
+[`r g("nullR_h2f_lo", AV)`, `r g("nullR_h2f_hi", AV)`] um against an observed
+`r g("obs_h2f_um", AV)`. So the test would have declared co-location only if the median had
+fallen below about **`r g("nullR_h2f_lo", AV)` um**, a
+`r if (!is.null(AV)) round(100*(1 - AV$nullR_h2f_lo/AV$nullR_h2f_med)) else NA`% reduction
+against chance. Anything weaker than that is not excluded by this result.
+</div>
+
+# Does FL tissue respond to the field differently from ordinary tissue?
+
+The primary statistic is an **interaction**, not a slope, because a gene rising with field
+exposure inside FL tissue is not yet an FL-specific result: 1,723 of 6,175 genes are
+field-associated tissue-wide, so the generic response has to be subtracted.
+
+For each gene and coarse cell type: `b_fl` is the slope of expression on log2 field exposure
+among IB1 FL bins, `b_bg` the same slope among IB1 background bins, and
+**delta = b_fl − b_bg** is the field response specific to FL tissue. Both arms are the same
+sample, section and cell type; sequencing depth enters each fit as a covariate; intervals
+come from a stratified field-of-view cluster bootstrap.
+
+```{r resp-fig}
+img(file.path(IF, "figures/fig_21_interface_response.png"))
+```
+
+```{r resp-tier1}
+if (!is.null(T1)) {
+  for (ct in c("B","T","myeloid")) {
+    d <- T1[celltype == ct & testable == TRUE][order(p_norm)][1:8]
+    if (nrow(d)) print(kb(d[, .(gene, set, b_fl = round(b_fl,3), b_bg = round(b_bg,3),
+        delta = round(delta,3), lo = round(ci_lo,2), hi = round(ci_hi,2),
+        p_norm = signif(p_norm,3), q = signif(q_delta,3),
+        mde_fold = round(mde_fold,2), conc = concordant)],
+      caption = sprintf("Tier 1 (pre-declared), %s cells — top 8 by p", ct)))
+  }
+}
+```
+
+```{r resp-hits, results="asis"}
+if (!is.null(h1)) {
+  if (nrow(h1)) {
+    cat('<div class="verdict-ok">\n**Genes with an FL-specific field response** — all three conditions met: BH *q* < 0.05 on the Wald p, percentile interval excluding zero, and cp10k/detection concordance.\n</div>\n')
+  } else {
+    cat('<div class="verdict-no">\n**No pre-declared gene shows a field response specific to FL tissue.** None of the 44 genes reaches *q* < 0.05 in B, T or myeloid cells. Read it against the detectable effects below: the FL arm is 20-22 fields of view, and the median resolvable effect is 1.09-1.14 fold, so this is a bounded null and not a demonstration that the FL is indifferent to the field.\n</div>\n')
+  }
+}
+```
+
+<div class="verdict-mid">
+**Four genes appeared as hits in an earlier run of this analysis and they were an artifact of
+the p-value, not of the defect.** *IDO1* and *CD40* in B cells and *ICOS* and *RGS13* in T
+cells were reported at *q* = 0.000 before the percentile p was floored. Their percentile p
+values are in fact 0.009, 0.021, 0.006 and 0.012 — nowhere near the floor — and BH over 43-44
+tests puts them at *q* = 0.11, 0.22, 0.73 and 0.73. The defect adjustment barely touched them
+(shifts of −0.037, +0.027, −0.017, +0.010 against deltas of 0.114, −0.155, −0.180 and
+−0.042). **The attribution matters: the p-value bug removed them, and the over-fixation
+covariate did not.** They are retained in the tier-1 tables as the strongest non-significant
+signals, not as results.
+</div>
+
+```{r resp-hits-tbl}
+if (!is.null(h2) && nrow(h2))
+  kb(h2[order(celltype, -abs(delta)), .(celltype, gene,
+       delta = round(delta,3), d_unadj = round(delta_unadj,3),
+       fold = round(2^abs(delta),2), mde_fold = round(mde_fold,2),
+       lo = round(ci_lo,2), hi = round(ci_hi,2), q_norm = signif(q_delta,3),
+       p_perc = signif(p_perc,3))],
+     caption = "Tier 2 genome-wide genes meeting all three conditions. Reported, NOT interpreted -- see the box below.")
+```
+
+<div class="verdict-no">
+**The genome-wide tier returns `r if (is.null(h2)) NA else nrow(h2)` genes and this report
+does not interpret them as biology.** Four reasons, and they compound:
+
+1. **They sit on the detection floor.** The effects are 1.07–1.23 fold against median
+   detectable effects of 1.02–1.10 fold. Nothing here is comfortably above what the design
+   can resolve.
+2. **There is no programme.** The list is an assortment across unrelated pathways, and
+   several members (*SRSF7* splicing, *KPNA6* nuclear transport, *DHX29* helicase, *AHCYL1*)
+   are housekeeping genes rather than anything the Hodgkin field would plausibly induce in
+   FL tissue.
+3. **One member is a contamination marker behaving inconsistently.** *CD3D* is called down in
+   **B** cells, where it can only be T-cell transcript. If that were real leakage tracking
+   the field, *CD3E* (delta −0.042) and *TRAC* (−0.051) would move with it. They do not, so
+   *CD3D* is a single-gene fluctuation — which is what the rest of the list is likely to be.
+4. **The tail calibration cannot be checked.** Tier 2 rests on the Wald p because the
+   percentile p is floor-limited, and the floor is exactly what would let one verify the Wald
+   approximation where it matters.
+
+The pre-declared tier is the properly powered, hypothesis-driven test, and it is null. That
+is the result of this section.
+</div>
+
+<details>
+<summary>Two p-values, because a percentile bootstrap p has a floor and BH does not know it</summary>
+The first version of this analysis scored the percentile p as `2*min(mean(d<=0), mean(d>=0))`,
+which returns **exactly zero** when every resample falls one side of zero. BH reads zero as
+infinitely significant, and the genome-wide hit list became precisely the set of genes at
+that floor — **143 "hits" across three cell types, every one an artifact of the p-value
+rather than a result.** Two p-values are now carried:
+
+- **`p_perc`** — percentile, with the standard `(1 + count)/(1 + n)` correction so it can
+  never be zero. Distribution-free, but floored, and under a genome-wide BH over ~6,000
+  genes that floor alone gives *q* ≈ 12. **Tier 2 cannot reach *q* < 0.05 on the percentile
+  p at any effect size**, which is a real resolution limit and is reported rather than
+  hidden.
+- **`p_norm`** — Wald on the bootstrap SD. Not floor-limited, so it can support a
+  genome-wide correction, at the cost of assuming the resampling distribution is roughly
+  normal.
+
+A hit must satisfy all three of: `q_norm < 0.05`, percentile interval excluding zero, and
+cp10k/detection concordance.
+</details>
+
+```{r power}
+kb(PW, caption = "What a null here does and does not exclude. A |delta| smaller than med_mde_log2 could not have been resolved.")
+```
+
+# The over-fixation defect, which this step has to adjust for
+
+<div class="verdict-mid">
+**Dropping the defect cells does not leave the surviving area uniform, and that had to be
+measured rather than assumed.** Defect cells are already removed **per cell** upstream of
+everything here — `16_script_regions.R:166` and `16_script_celltype_pseudobulk.R:51` — which
+is the method `CLAUDE.md` requires rather than the FOV-level `qc_spatial_i_fraction` flag.
+So no defect transcriptome enters a bin score, a pseudobulk or a slope. But IB1 loses
+**59.1%** of its cells to the defect, the defect is spatially organised as a peripheral rim,
+and it does not delete cells evenly across the regions this step contrasts.
+</div>
+
+```{r defect-burden}
+kb(DB, caption = "What each region lost to the per-cell defect drop")
+```
+
+<div class="verdict-no">
+**Three distortions were possible and all three are present.**
+
+1. **The two arms of the interaction are differently depleted.** FL bins carry a per-bin
+   defect fraction of **`r g("fl_defect_frac", DQ)`** against background's
+   **`r g("bg_defect_frac", DQ)`** — SMD **`r g("fl_vs_bg_smd", DQ)`**. Depth is a covariate
+   in every fit; "how many of this bin's neighbours were deleted" was not.
+2. **The exposure axis partly tracks defect burden.** Within FL tissue, defect fraction rises
+   with CCL17+CCL22: bin-level rho **`r if (!is.null(DVE)) DVE[level=="bin", rho] else NA`**
+   (*p* = `r if (!is.null(DVE)) signif(DVE[level=="bin", p],3) else NA`), FOV-level
+   **`r g("rho_defect_exposure_fov", DQ)`** (*p* = `r g("p_defect_exposure_fov", DQ)`), with an
+   SMD of **`r g("smd_defect_high_vs_low", DQ)`** across the low/high exposure split. This is
+   consistent with something already on record: `qc_11_flattening_vs_chemokine.R` found the
+   discarded cells to be chemokine-**enriched** (CCL17 1.20x, CCL22 1.18x). Field exposure and
+   defect burden are genuinely coupled in this tissue.
+3. **One of the three tissue pieces is defect-carved.** The identical single-linkage
+   decomposition gives **`r g("pieces_pre", DQ)`** pieces on every occupied bin before the
+   drop and **`r g("pieces_post", DQ)`** after it. The defect split IB1's lower tissue mass in
+   two.
+</div>
+
+<div class="verdict-ok">
+**What was done about each.** (1) and (2) are handled the same way: every slope in the
+interaction carries the bin's **defect fraction** as a covariate alongside depth, and the
+unadjusted estimate is reported beside it so the size of the adjustment is visible. On
+synthetic data where a gene's entire apparent exposure effect *is* the confounder, the
+unadjusted slope reads 1.611 and the adjusted −0.003.
+
+(3) does not change the arrangement test, which used the largest piece under either
+decomposition. It is left on the **post-drop** mask deliberately: a hotspot can only be
+*called* in a bin retaining at least 40 cells, so siting null foci on pre-drop bins would
+let them land where a hotspot could never have been detected. Observed pattern and null are
+then conditioned on the same detectability. What the caveat costs is the piece
+decomposition's status as anatomy — it is a map of where data survived, not of where tissue
+is.
+</div>
+
+```{r defect-shift}
+kb(DAS, caption = "How far adjusting for defect burden moved delta. A shift small against med_abs_delta means the defect was not driving the contrast.")
+```
+
+# Composition on the same axis
+
+<div class="verdict-no">
+**A count-based version of this analysis was computed first and is WITHDRAWN.** It regressed
+each cell type's per-bin cell *count* on field exposure and returned steep negative
+associations inside FL tissue for myeloid, fibroblast and endothelial cells. Those were the
+bin's total, not its composition: inside FL tissue total assigned cells per bin falls with
+exposure at Spearman **−0.34** against **−0.16** in background tissue, so every count fell
+whether or not its share moved. The diagnostic that settles it is endothelium, whose
+association **reverses** with the denominator — rho −0.378 on counts and +0.236 on shares. A
+measure that changes sign when you change the denominator was measuring the denominator.
+</div>
+
+The replacement uses the **share** of assigned cells in the bin, and adds the bin's
+over-fixation burden as a covariate alongside depth — not optional here, since the defect
+deletes cells and therefore moves shares directly whenever it deletes cell types unevenly.
+
+```{r comp-share}
+kb(if (!is.null(CSH)) CSH[order(p_norm), .(celltype, fl_fovs, bg_fovs,
+     b_fl = signif(b_fl,3), b_bg = signif(b_bg,3), delta = signif(delta,3),
+     d_unadj = signif(delta_unadj,3), lo = signif(ci_lo,3), hi = signif(ci_hi,3),
+     p_norm = signif(p_norm,3), q = signif(q_norm,3), mde = signif(mde,3), verdict)] else NULL,
+   caption = "Change in each cell type's SHARE per doubling of CCL17+CCL22, depth and over-fixation burden held fixed. delta = FL slope minus background slope.")
+```
+
+<div class="verdict-no">
+**Composition is null too.** No cell type's share responds to field exposure differently
+inside FL tissue than in IB1 background tissue
+(`r if (!is.null(CSH)) sprintf("all q >= %.2f", min(CSH$q_norm)) else "all q >= 0.46"`).
+Myeloid is the strongest at delta
+`r if (!is.null(CSH)) signif(CSH[celltype=="myeloid", delta],3) else NA`
+(*p* = `r if (!is.null(CSH)) signif(CSH[celltype=="myeloid", p_norm],3) else NA`).
+
+**Fibroblasts show what the corrections were worth.** Their raw Spearman was −0.609 inside FL
+tissue against +0.035 in background — the largest apparent differential in the count-based
+version. Adjusted, the delta is
+`r if (!is.null(CSH)) signif(CSH[celltype=="fibro", delta],4) else NA`
+(*p* = `r if (!is.null(CSH)) signif(CSH[celltype=="fibro", p_norm],3) else NA`). The whole
+effect was total cell count plus over-fixation burden.
+</div>
+
+<div class="verdict-mid">
+**This is where a positive result was most expected, which makes the null informative.** Step
+16 established that most regional signal in IB1 is compositional rather than cell-state —
+conditioned on cell type, the FL focus differs from background by zero genes within B or
+within T. So composition was the leg with the best prior odds. It too comes back null once
+the denominator and the fixation gradient are handled.
+</div>
+
+# What this step cannot support
+
+- **A claim that the FL is indifferent to the Hodgkin field.** The FL arm is 20–22 fields of
+  view against the background arm's 338–557. Where delta is null, consult `mde_log2` before
+  reading it as absence.
+- **A genome-wide claim on the percentile bootstrap.** Its floor forbids *q* < 0.05 over
+  ~6,000 genes at any effect size. Tier 2 rests on the Wald approximation, and this report
+  does not interpret its hits.
+- **Any composition result on cell COUNTS.** Total cells per bin falls with exposure inside
+  FL tissue; only the share-based, defect-adjusted version is interpretable.
+- **Anything about distance from the Hodgkin field.** Axis A is rejected; every result here
+  is on local field level, which is a measure of *exposure*, not of *distance to a source*.
+  The two are not interchangeable in this tissue and that is one of the step's findings.
+- **A bin-level or pooled contrast on this axis.** Field exposure and B share are collinear
+  (SMD `r g("axisB_fb_a_smd")`); only the cell-type-conditioned version is interpretable.
+- **Per-cell HRS identification**, which remains closed on this panel, so "the Hodgkin
+  field" is throughout a chemokine readout and not a count of tumour cells.
+- **Any cross-sample statement.** Nothing here involves RB1.
+- **A defect-free reading of the exposure axis.** Field exposure and over-fixation burden are
+  coupled within FL tissue (FOV rho `r g("rho_defect_exposure_fov", DQ)`). The covariate
+  removes a linear association; it cannot remove the possibility that the deleted cells
+  differed from the survivors in ways depth and burden do not capture.
+- **The tissue-piece decomposition as anatomy.** It is post-defect-drop coverage
+  (`r g("pieces_post", DQ)` pieces against `r g("pieces_pre", DQ)` pre-drop).
+- **A clean verdict on lesion arrangement.** The two nulls bracket it and neither reaches
+  significance; the over-fixation rim is confounded with both the hotspot positions and the
+  distance to FL, and this section cannot separate a technical from a biological peripheral
+  bias.
+
+# Methods
+
+```{r methods-child, child="scripts/lib/methods_notes.Rmd"}
+```
+
+# Appendix: inputs not found at render time
+
+```{r missing}
+if (length(MISSING)) kb(data.table(missing = unique(MISSING))) else
+  cat("All inputs were present.\n")
+```
+
+## Scripts, in dependency order
+
+```
+21_script_interface_geometry.R     -> output/21_interface/<tier>/  gate + axis selection
+21_script_interface_response.R     -> output/21_interface/<tier>/  the interaction (sbatch)
+21_script_interface_arrangement.R  -> output/21_interface/<tier>/  the two nulls
+21_script_interface_defect_qc.R    -> output/21_interface/<tier>/  over-fixation QC + covariate
+21_script_interface_composition.R  -> output/21_interface/<tier>/  composition, share-based
+21_script_interface_views.R        -> output/21_interface/<tier>/figures/
+21_summary_report.Rmd              -> output/21_summary/step21_interface.html
+```

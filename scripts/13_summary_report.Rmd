@@ -1,0 +1,866 @@
+---
+title: "IB1 composite lymphoma: light-chain neighbourhoods, the Hodgkin chemokine field, and what did not work"
+subtitle: "CosMx 6K, P3_CosMx_v2 — steps 07–12. REVISED 2026-09-01; four findings superseded, see the changelog."
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    toc_depth: 3
+    number_sections: true
+    code_folding: hide
+    theme: flatly
+    self_contained: true
+    mathjax: null
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE,
+                      fig.align = "center", dpi = 110)
+knitr::opts_knit$set(root.dir = "/gpfs1/pi/avolaric/files_jrboyd/P3_CosMx_v2")
+suppressPackageStartupMessages({library(data.table); library(ggplot2); library(knitr)})
+setDTthreads(1)
+
+ROOT <- "/gpfs1/pi/avolaric/files_jrboyd/P3_CosMx_v2"
+## Every read is guarded: a missing intermediate should degrade one block, never kill
+## the render. Which files were unavailable is listed in the appendix.
+MISSING <- character()
+rd <- function(p, ...) {
+  f <- file.path(ROOT, p)
+  if (!file.exists(f)) { MISSING <<- c(MISSING, p); return(NULL) }
+  tryCatch(fread(f, ...), error = function(e) { MISSING <<- c(MISSING, p); NULL })
+}
+img <- function(p, cap = NULL) {
+  f <- file.path(ROOT, p)
+  if (!file.exists(f)) { MISSING <<- c(MISSING, p); return(invisible(NULL)) }
+  ## rel_path = FALSE: include_graphics otherwise rewrites the path relative to the
+  ## Rmd's own directory (scripts/), while the existence check runs from root.dir
+  ## (the project root), so "../output/..." resolves outside the project and fails.
+  ## self_contained still base64-embeds an absolute path, so portability is kept.
+  knitr::include_graphics(f, rel_path = FALSE)
+}
+tbl <- function(d, cap = NULL, digits = 3) {
+  if (is.null(d) || !nrow(d)) return(invisible(NULL))
+  kable(d, caption = cap, digits = digits, format = "html",
+        table.attr = 'class="table table-sm table-striped"')
+}
+SURF<-"#fcfcfb"; INK<-"#0b0b0b"; INK2<-"#52514e"; MUTED<-"#898781"; GRID<-"#e1e0d9"
+BLUE<-"#2a78d6"; ORANGE<-"#eb6834"; AQUA<-"#1baf7a"
+th <- theme_minimal(base_size = 11) +
+  theme(plot.background=element_rect(fill=SURF,colour=NA),
+        panel.background=element_rect(fill=SURF,colour=NA),
+        panel.grid.minor=element_blank(),
+        panel.grid.major=element_line(colour=GRID,linewidth=.25),
+        plot.title=element_text(colour=INK,face="bold"),
+        plot.subtitle=element_text(colour=INK2,size=9),
+        plot.caption=element_text(colour=MUTED,size=8,hjust=0),
+        legend.position="top", legend.justification="left")
+```
+
+```{css, echo=FALSE}
+.table { font-size: 0.86em; }
+details { background:#f6f5f1; border-left:3px solid #c3c2b7; padding:.6em 1em; margin:1em 0; }
+summary { cursor:pointer; font-weight:600; color:#52514e; }
+.verdict-ok  { border-left:4px solid #1baf7a; padding:.5em 1em; background:#f2faf6; margin:1em 0; }
+.verdict-no  { border-left:4px solid #eb6834; padding:.5em 1em; background:#fdf4ef; margin:1em 0; }
+.verdict-mid { border-left:4px solid #2a78d6; padding:.5em 1em; background:#f1f6fc; margin:1em 0; }
+```
+
+# Revision notice {-}
+
+<div class="verdict-no">
+**This document was revised on 2026-09-01 and supersedes the originally circulated version.**
+If you are holding an earlier copy, four findings in it have changed. Everything else is
+unaltered. The corrections are made inline below and are also listed here so a reader with the
+old version can see what moved without re-reading the whole report.
+
+| what the original said | status now | where it was settled |
+|---|---|---|
+| Assumption "RB1 is a valid negative control **PRE-QC**" — **FAILED** | **RESOLVED.** The symmetric `matched` QC tier gives IB1 80 chemokine hotspots (66 seam-free) and **zero** RB1 bins clearing the same cut. | step 16, `output/16_summary/step16_FL_comparison.html` |
+| CD30 rejected partly because "depth predicts CD30 positivity at **AUC 0.716**" | **THAT LEG IS WITHDRAWN.** AUC ≈ 0.70 against depth is generic to every sparse gene on this platform (*IGKC* 0.693, *CD3E* 0.695, *CD68* 0.731), so it is not evidence about CD30. **The conclusion is unchanged** — see the corrected box in §5.2. | step 16 negprobe/AUC calibration |
+| The Hodgkin chemokine field is "**tissue-wide**" | **QUANTIFIED, and the word was imprecise.** The field decays **2.71× [1.95, 3.91]** from 100–400 µm to >1600 µm from a hotspot, against **1.20×** in RB1 (ratio **2.27× [1.62, 3.25]**). Most of it is spent by 400–800 µm; beyond that a flat **4.07×** IB1:RB1 residual remains that is *not* a decaying field and is unattributed. | step 17, `field_extent_verdict.csv` |
+| FL-like foci are not transcriptionally distinguishable — attributed to low power, "on n = 6 foci" | **SAME VERDICT, STRONGER CAUSE.** Conditioning on cell type gives **zero** significant genes within B or T cells. The FL focus is a change in cell **mixture**, not in cell **state**. It is not a power failure. | step 16, contrast CT1 |
+
+Two later reports carry the work this one does not: `output/16_summary/step16_FL_comparison.html`
+(IB1 vs RB1) and `output/17_summary/step17_PD1_PDL1.html` (the checkpoint question). A glossary
+of the biology and statistics is at `output/17_summary/composite_node_lexicon.html`.
+</div>
+
+# Objective and assumptions
+
+## The sample and the question
+
+**IB1** is a composite lymph node from a single patient: classic Hodgkin lymphoma (cHL)
+together with follicular lymphoma (FL). **RB1** is the FL recurrence from the same
+patient — the same clone, no Hodgkin component. Assayed on the CosMx 6K panel.
+
+The question driving steps 07–12: **can the two disease processes be localised
+separately within the composite node, and what distinguishes their microenvironments?**
+
+## Assumptions, and which ones held
+
+```{r assumptions}
+a <- data.table(
+  Assumption = c(
+    "RB1 is a valid negative control for Hodgkin signal",
+    "RB1 is a valid negative control PRE-QC",   # RESOLVED in step 16, see revision notice
+    "Light-chain restriction identifies the FL clone",
+    "Step 07's `B_clean` tier contains B cells",
+    "CD30 (TNFRSF8) can identify HRS cells",
+    "HRS cells are giant; segmentation may split them",
+    "Spatial QC removes damaged tissue, not signal",
+    "n = 1 patient — everything is descriptive"),
+  Status = c("HELD", "FAILED -> RESOLVED (step 16)", "HELD", "FAILED", "FAILED",
+             "TESTED, REJECTED", "HELD, WRONG DIRECTION", "HELD"),
+  Evidence = c(
+    "RB1 clears no Hodgkin hotspot cut at any threshold",
+    "RB1 staining flag is `not_evaluated`; 2.0M IB1-only cells have no counterpart. RESOLVED by step 16's symmetric `matched` tier: 80 hotspots (66 seam-free), zero RB1 bins clear the cut",
+    "RB1 is 99% kappa in clustered B cells; IB1 foci reach 0.88",
+    "13.4% B cells in the diffuse compartment vs 48.9% clustered",
+    "Max 6 counts, 78% singletons; held-out cHL-programme AUC 0.552; RB1 (no Hodgkin) 6.27% CD30+ vs IB1 7.01%. (Revised: the original also cited depth AUC 0.716, which is generic and withdrawn -- see sec. 5.2)",
+    "Adjacency 1.03x over a density-matched null, identical in both samples",
+    "Discarded cells carry MORE chemokine, not less: +1.20x after correcting for flattening (sec. 4)",
+    "Stated in step 01; no inference here is population-level"))
+tbl(a, "Assumptions carried into the analysis and how each fared.")
+```
+
+<div class="verdict-mid">
+**Two assumptions failed in ways that changed the analysis.** Step 07's `B_clean` tier
+is defined purely by exclusion — light-chain-high, not plasma, not near plasma — and
+never tests for B identity, which invalidated the first version of step 08. And CD30
+has too little dynamic range on this panel to call HRS cells at all, which redirected
+step 10 into step 11.
+</div>
+
+## Units and a naming caution
+
+<details>
+<summary>`cp10k` means two different things across these scripts — read before comparing numbers</summary>
+
+| where | formula | unit |
+|---|---|---|
+| step 11 bins | `sum(marker counts) / sum(nCount)` pooled over the bin | share of the **bin's** transcriptome |
+| step 10 per-gene | per-cell `marker/nCount`, then averaged over cells | mean of **per-cell** shares |
+| myeloid readout A | pooled, as step 11 | bin share |
+| myeloid readout B | per-cell, then averaged | mean per-cell share |
+
+The pooled form is depth-weighted, so a few deep cells can carry a bin; the per-cell
+mean weights every cell equally. Both were run wherever the distinction could matter
+(the DC result below), and they agreed. **Step 10's "CCL17 8.56 vs 1.96" and step 11's
+"median bin 4.0" are therefore not directly comparable numbers.**
+</details>
+
+## Cell-type labels are audited, not taken from HierAnnot
+
+```{r relabel}
+rl <- rd("output/09b_marker_relabel/IB1/cluster_labels_final.csv")
+if (!is.null(rl)) {
+  x <- rl[clustering == "pearson_clusters_low",
+          .(cluster = cluster_id, `% of node` = pct_cells, `% cluster i` = pct_defect,
+            label, status, top_z, `HierAnnot said` = hierannot_immune_core,
+            agrees)][order(cluster)]
+  tbl(x, "Step 09b marker audit of pearson_clusters_low. `top_z` is the family score; higher is stronger. HierAnnot disagrees on 5 of 9.")
+}
+```
+
+<div class="verdict-mid">
+**HierAnnot's `annot_path` is wrong on a substantial minority of clusters, in ways that
+would invert an interpretation.** Cluster 2 is the follicular stromal/FDC scaffold —
+`PDGFRB`, `COL1A1`, `ACTA2` structurally, plus `CLU`, `CR2`, `VCAM1`, `C3`, `CXCL13`
+inside follicles — and HierAnnot calls it macrophage. Cluster 5 is endothelium called
+neutrophil; cluster 6 is pDC called plasma cell. Choosing a better-scoring hierarchy does
+not rescue this: `tme_core` and `tonsil_tme` both outrank `immune_core` on HierAnnot's own
+`fit_rank_score`, and both call the dominant cluster "Epithelial > Luminal epithelial" in
+a lymph node.
+
+`scripts/09b_script_marker_relabel.R` scores every cluster against a 16-family lymph-node
+panel, z-scoring each gene **across clusters** first so no single abundant marker can
+carry a call, and attaches a status to each result. It is an audit, not an oracle — it
+replaces one automated call with another. What it adds is that a weak call announces
+itself: an abundance cap rejects lineages that cannot plausibly be that common, a
+child-vs-parent tie resolves to the parent, and `defect_dominated` marks any cluster more
+than half over-fixation cells.
+
+**Cluster 0 is that last case, and it is not a cell type.** It is 70% `inSitu_clusters ==
+"i"` and holds **86% of every defect cell in IB1**. Its clean 30% remnant scores only
+1.04, so it carries no lineage label. Note the consequence for clustering choice: the low
+clustering concentrates the defect in one cluster, while `pearson_clusters_high` spreads
+it across six (78%, 63%, 61%, 58%, 52%, 52%).
+</div>
+
+Downstream scripts read these through `scripts/lib/cluster_labels.R`, which errors rather
+than falling back if the audit has not been run for a sample.
+
+---
+
+# How to read these numbers
+
+<div class="verdict-mid">
+**Companion glossary.** A standalone reference for the immunology and the statistics used
+across this project -- terms tagged as either field-standard or specific to this analysis --
+is at `output/17_summary/composite_node_lexicon.html`. It covers the PD-1 axis, the cell
+states and modules, the two diseases, and a section each on the metrics and the statistical
+tests. The methods section below is self-contained; the lexicon is broader and spans
+steps 07-17.
+</div>
+
+```{r methods-child, child="scripts/lib/methods_notes.Rmd"}
+```
+
+---
+
+# Linear analysis
+
+## Light-chain neighbourhoods (step 07)
+
+Light-chain neighbourhoods are built from two genes only — `IGKC` and `IGLC1/2` — on
+cells with ≥4 light-chain counts, after removing plasma cells and their 15 µm spillover
+halo, then clustered into spatial graph communities at four radii.
+
+```{r nb-table}
+nb <- rd("output/07_lightchain/IB1/lightchain_neighborhoods_r40um.csv")
+if (!is.null(nb)) {
+  s <- nb[artifact_suspect == FALSE, .(neighbourhoods = .N,
+          median_cells = as.numeric(median(n_cells)),
+          median_kappa_frac = round(median(kappa_frac), 3)), by = class][order(-neighbourhoods)]
+  tbl(s, "IB1 light-chain neighbourhoods at r40um, artifact-suspect excluded. Polytypic ~0.62 is the reactive expectation.")
+}
+```
+
+```{r nb-global, out.width="100%", fig.cap="Step 07 global view. Panel 3 colours each neighbourhood by aggregate log2 kappa:lambda; red is kappa-restricted (high ratio), blue is lambda-skewed."}
+img("output/07_lightchain_global/IB1/IB1_global_r40um.png")
+```
+
+### What is actually inside a neighbourhood (step 14)
+
+Steps 07–08 described neighbourhoods by their *called* cells. Step 14 characterises **all
+cells occupying the same tissue**, against control regions matched on cell count *and*
+median depth, with the **region as the unit of analysis** (68 neighbourhoods vs 204
+controls) rather than the cell.
+
+```{r inout-prev}
+pv <- rd("output/14_lightchain_in_out/IB1/cluster_prevalence_in_out.csv")
+if (!is.null(pv)) {
+  x <- pv[clustering == "pearson_clusters_low" & members_dropped == TRUE,
+          .(cluster = cluster_id, label, `% in` = round(pct_in,2), `% out` = round(pct_out,2),
+            log2_enrichment = round(log2_enr,2))][order(-log2_enrichment)]
+  tbl(x, "Cluster prevalence inside vs outside neighbourhood footprints, with the 14,641 CALLED member cells REMOVED. Descriptive log2 enrichment, region as the unit (68 neighbourhoods vs 204 count- and depth-matched controls) -- no per-cluster test, so read the size. Without the member removal the B/plasma rows would restate the selection rule.")
+}
+```
+
+```{r inout-markers, out.width="100%", fig.cap="Marker expression by cluster, in vs out. Called members removed; IGKC/IGLC shown for reference only as the selection variable."}
+img("output/14_lightchain_in_out/IB1/figures/fig_14_heatmap_markers.png")
+```
+
+```{r inout-de, out.width="100%", fig.cap="Genes differing in vs out, region as the unit, restricted to genes where cp10k and detection rate agree."}
+img("output/14_lightchain_in_out/IB1/figures/fig_14_heatmap_differential.png")
+```
+
+<div class="verdict-ok">
+**Two coherent programmes, neither of them the selection variable.** Cluster 2 — the
+stromal/FDC cluster HierAnnot called macrophage — carries the full follicular scaffold
+inside neighbourhoods, concordant in *both* cp10k and detection rate: `CLU` 58.1 vs 10.1
+cp10k (69% vs 26% of cells), `VCAM1`, `C3`, `CXCL13`, `CR2`, `CR1`, `SERPINE2`, `FCER2`,
+`CCL21`. Cluster 3 carries a Tfh programme: `CXCL13` +2.70, `PDCD1` +0.59, `ICOS` +0.43,
+`CTLA4` +0.46 log2.
+
+The Tfh result deserves a note, because **an earlier Tfh claim in this project was
+retracted for pseudo-replication** (section 3). This one is not that claim: the unit is
+the region, the controls are depth-matched, and the effect is concordant across two
+independent measures.
+</div>
+
+<div class="verdict-no">
+**Neighbourhoods are *less* internally consistent than random tissue**, not more — median
+Bray-Curtis distance to the group centroid 0.185 vs 0.128 for matched controls
+(p = 3.1e-09). They are not a uniform tissue type. Four are compositional outliers, led by
+a lambda-skewed one at 0.505. Composition did **not** separate kappa-restricted FL-like
+neighbourhoods from polytypic reactive ones (all q > 0.47) — but only **6 of 17** FL-like
+neighbourhoods survive to be tested, so that is underpowered, not negative.
+</div>
+
+<details>
+<summary>Why 154 neighbourhoods become 68, and whether the loss is biased</summary>
+
+Step 07 built neighbourhoods on the **pre-QC** object (2.54M cells); `pearson_clusters_*`
+exist only **post-QC** (400k). The spatial filter removes 84% of IB1, so 86 neighbourhoods
+lack enough surviving tissue to characterise.
+
+```{r inout-attrition}
+at <- rd("output/14_lightchain_in_out/IB1/neighborhood_attrition.csv")
+if (!is.null(at)) tbl(at, "Neighbourhood retention by step-07 class. The p-values below it are Mann-Whitney U on neighbourhood-level summaries (size, cluster-`i` fraction, kappa fraction), one observation per neighbourhood.")
+```
+
+Retention is driven by **size** (median 79 cells kept vs 30.5 lost, p = 4.3e-06) and by
+**over-fixation burden** (median cluster-`i` fraction 1.8–9.8% kept vs 19.2–33.3% lost).
+It is **not** driven by light chain: median `kappa_frac` is 0.754 in retained
+neighbourhoods against 0.750 in lost ones, so the FL clone is not being preferentially
+discarded.
+</details>
+
+<details>
+<summary>A normalisation artifact that had to be removed first</summary>
+
+The first pass returned `PHKG2`, `A1BG`, `DUSP2` and `OXR1` as depressed inside
+neighbourhoods in **all nine clusters** at roughly 2×, with q down to 1e-20. They are the
+highest-abundance genes on the panel (91–114 cp10k), and their **detection rates had moved
+only 0.87–0.96×**. cp10k sums to 10,000, so the genuine rise in `CXCL13`/`CLU`/`CD79A`
+forces an apparent fall in whatever is most abundant. Negative probes differed only 1.16×
+between the groups, so ambient background did not explain it either — the arithmetic did.
+
+Every result above is therefore gated on cp10k and detection rate agreeing in direction
+(811 of 953 significant results survive), and figure genes are ranked by the **detection**
+effect, which cannot be pushed around by what other genes are doing.
+</details>
+
+### RB1 cannot be analysed this way, and that is the finding
+
+Running the same analysis on RB1 stops immediately: **1,276,791 of its 1,286,223 cells sit
+inside a light-chain neighbourhood, leaving 689 outside.** In the FL recurrence the
+light-chain-restricted compartment *is* the node, so no control tissue exists within the
+sample and the in/out contrast is undefined. That is the sharpest available statement of
+how the two samples differ: in IB1 the same construction covers a minority of tissue and
+leaves real control territory.
+
+## The Hodgkin chemokine field (step 11)
+
+### Why chemokines, and how they were found
+
+Step 10 scored a 21-gene cHL programme with equal weights and z-scored **within sample**.
+Both choices were wrong for this question: equal weighting diluted the informative genes,
+and within-sample z-scoring makes a between-sample comparison impossible by construction.
+Re-examining the genes individually on a common depth-standardised scale found the signal.
+
+```{r chl-genes, fig.width=7.5, fig.height=5.2, fig.cap="Only a few of the 21 scored genes carry Hodgkin-specific signal. The rest diluted it."}
+g <- rd("output/10_hrs/chl_program_per_gene.csv")
+if (!is.null(g)) {
+  g[, lab := fifelse(gene %in% c("CCL17","CCL22","BATF3","CD40"), "Hodgkin-specific",
+             fifelse(gene == "TNFRSF8", "CD30 (validator)", "flat"))]
+  ggplot(g, aes(reorder(gene, ratio_IB1_RB1), ratio_IB1_RB1, fill = lab)) +
+    geom_col(width=.72) + coord_flip() +
+    geom_hline(yintercept=1, colour=INK, linetype="22", linewidth=.4) +
+    scale_fill_manual(values=c(`Hodgkin-specific`=BLUE, `CD30 (validator)`=ORANGE, flat=MUTED),
+                      name=NULL) +
+    labs(title="IB1 : RB1 per gene, depth-standardised",
+         subtitle="Counts per 10k on a common scale. 1.0 = no difference between the composite node and the FL recurrence.",
+         x=NULL, y="IB1 : RB1 ratio",
+         caption="Data: output/10_hrs/chl_program_per_gene.csv") + th
+}
+```
+
+```{r chl-tab}
+if (!is.null(g)) tbl(head(g[order(-ratio_IB1_RB1), .(gene, cp10k_IB1, cp10k_RB1,
+     pct_det_IB1, pct_det_RB1, ratio_IB1_RB1)], 8),
+     "Top genes by IB1:RB1 ratio. CCL17/TARC and CCL22/MDC are the canonical HRS chemokines; serum TARC is a clinical cHL biomarker.")
+```
+
+### Is it composition rather than biology?
+
+RB1's node is effaced by FL (39.9% B cells vs IB1's 8.5%), so "IB1 has more T/DC-zone
+chemokine" was a live alternative. It is refuted: the elevation holds **within every
+lineage**, and composition standardisation *raises* the ratio rather than lowering it.
+
+```{r confound}
+cf <- rd("output/11_hodgkin_niche/niche_confound_within_lineage.csv")
+if (!is.null(cf)) tbl(cf[order(-ratio)], "CCL17+CCL22 per cell within each lineage, depth-standardised. No lineage is near 1.")
+st <- rd("output/11_hodgkin_niche/niche_confound_standardised.csv")
+if (!is.null(st)) tbl(st, "Whole-sample ratio raw vs standardised to each sample's cell mix. Composition was diluting the signal, not creating it.")
+```
+
+### Field versus hotspots
+
+Two thresholds answer two questions. RB1's 99th percentile asks *is IB1 elevated at
+all* — so pervasively that ~27% of bins clear it, which is a **field** rather than
+a niche. (Revision 2026-09-01: "tissue-wide" in the original overstated the extent. Step 17
+measured it — the elevation decays **2.71× [1.95, 3.91]** from 100–400 µm to >1600 µm from a
+hotspot against **1.20×** in RB1, so most of the field is spent by **400–800 µm**. A flat
+**4.07×** IB1:RB1 residual persists beyond that which is *not* a decaying field and remains
+unattributed. See `field_extent_verdict.csv`.) IB1's own 99th percentile isolates the **focal hotspots**.
+
+```{r sweep, fig.width=7.5, fig.height=4.4, fig.cap="Seam-free hotspots are a stable core; total hotspots simply track the shrinking bin pool."}
+sw <- rd("output/11_hodgkin_niche/niche_min_cells_sweep.csv")
+if (!is.null(sw)) {
+  m <- melt(sw[, .(min_cells, hotspots, hotspots_seam_free)], id.vars="min_cells")
+  ggplot(m, aes(min_cells, value, colour=variable)) +
+    geom_line(linewidth=.8) + geom_point(size=2.2) +
+    scale_colour_manual(values=c(hotspots=MUTED, hotspots_seam_free=BLUE), name=NULL) +
+    labs(title="MIN_CELLS sweep, post-QC",
+         subtitle="RB1 clears the cut at zero bins for every value tested.",
+         x="minimum cells per 100 um bin", y="hotspots",
+         caption="Data: output/11_hodgkin_niche/niche_min_cells_sweep.csv") + th
+}
+if (!is.null(sw)) tbl(sw, "The seam-free count is flat across thresholds; the total is not.")
+```
+
+```{r niche-global, out.width="100%", fig.cap="Step 11 global, post-QC. Panel 2: hotspots (dark, blue outline = seam-free, amber = seam-flagged) on the elevated field. Panel 3: the continuous score."}
+img("output/11_hodgkin_niche_global/IB1_global_bin100um_postqc.png")
+```
+
+### Pre-QC: the map versus the control
+
+The spatial QC keeps 15.8% of IB1 and leaves **613 of 758 FOVs with zero passing
+cells**. The filter does not enrich for the signal — discarded cells carry *more*
+chemokine than kept ones (section 4) — so the post-QC estimate is conservative and
+mapping pre-QC is defensible for *position*. Pre-QC *magnitudes* are not, and the RB1
+control cannot follow either, because RB1's staining flag is `not_evaluated`.
+
+```{r preqc}
+pc <- rd("output/11_hodgkin_niche/preqc_bin_coverage.csv")
+if (!is.null(pc)) tbl(pc[, .(bins=.N, med_cells=as.numeric(median(cells)),
+     med_cp10k=round(median(chemo_cp10k),1), q99=round(quantile(chemo_cp10k,.99),1),
+     max=round(max(chemo_cp10k))), by=set], "Bin coverage, pre-QC vs post-QC.")
+ov <- rd("output/11_hodgkin_niche/preqc_hotspot_overlap.csv")
+if (!is.null(ov)) tbl(ov, "Hotspot overlap. 175 of 180 pre-QC hotspots sit in territory that has no bin post-QC.")
+```
+
+```{r preqc-global, out.width="100%", fig.cap="Step 11 global, pre-QC. Both tissue pieces are fully tiled; the post-QC version leaves large regions blank."}
+img("output/11_hodgkin_niche_global/IB1_global_bin100um_preqc.png")
+```
+
+## Differential genes and neighbouring cell changes
+
+### What is in a hotspot
+
+```{r comp}
+cp <- rd("output/11_hodgkin_niche/niche_composition.csv")
+if (!is.null(cp)) tbl(cp, "Bin composition. f_* are percentages of neighbours within 30 um; med_area in um2.")
+sec <- rd("output/11_hodgkin_niche/niche_secondary_markers.csv")
+if (!is.null(sec)) tbl(sec, "Secondary markers, none of which define the niche — independent corroboration.")
+```
+
+### The macrophage anomaly, and its resolution
+
+Hotspots looked macrophage-**depleted**, which contradicts the tumour-associated
+macrophage picture in cHL. Testing both averaging schemes and the called cell types
+resolves it: these are **dendritic-cell** regions.
+
+```{r myeloid, fig.width=7.5, fig.height=5, fig.cap="Mature DC (LAMP3/CCR7) and cDC1 up; macrophage markers down. Both weightings agree."}
+my <- rd("output/11_hodgkin_niche/hotspot_myeloid_marker_sets.csv")
+if (!is.null(my)) {
+  w <- dcast(my, set ~ readout, value.var="ratio")
+  setnames(w, 2:3, c("A_pooled","B_percell"))
+  m <- melt(w, id.vars="set", variable.name="readout", value.name="ratio")
+  ggplot(m, aes(reorder(set, ratio), ratio, fill=readout)) +
+    geom_col(position=position_dodge(.8), width=.74) + coord_flip() +
+    geom_hline(yintercept=1, colour=INK, linetype="22", linewidth=.4) +
+    scale_fill_manual(values=c(A_pooled=BLUE, B_percell=AQUA), name=NULL) +
+    scale_y_log10() +
+    labs(title="Hotspot : background, by marker set",
+         subtitle="A = pooled bin share (depth-weighted); B = mean of per-cell shares. Log scale.",
+         x=NULL, y="hotspot : background ratio",
+         caption="Data: output/11_hodgkin_niche/hotspot_myeloid_marker_sets.csv") + th
+}
+```
+
+```{r myeloid-lin}
+ln <- rd("output/11_hodgkin_niche/hotspot_myeloid_lineage.csv")
+if (!is.null(ln)) {
+  lw <- dcast(ln, lineage ~ grp, value.var="pct")
+  if (all(c("hotspot","background") %in% names(lw))) {
+    lw[, ratio := round(hotspot/pmax(background,1e-9),2)]
+    tbl(lw[order(-hotspot)], "Called lineage composition (%). Step 01's myeloid set is macrophage-weighted and contains no DC-specific gene, so DC-rich regions fall into ambiguous / all_markers_0.")
+  }
+}
+wm <- rd("output/11_hodgkin_niche/hotspot_myeloid_within_myeloid.csv")
+if (!is.null(wm)) tbl(wm[order(-ratio)], "Within called-myeloid cells only. The chemokine row is CIRCULAR (bins were called on chemokine) and must not be quoted as evidence; the DC and macrophage rows are not.")
+```
+
+<div class="verdict-ok">
+**Resolution.** CCL17/CCL22 are the signature secretions of mature/migratory LAMP3⁺CCR7⁺
+dendritic cells, not only of HRS cells. The hotspots are DC territory: cDC1 1.83×, mature
+DC 1.59×, macrophage 0.77×, `mac_core` 0.57× — consistent across both weightings, and
+mirrored in the called lineages. Caveat: LAMP3/CCR7 rising where CCL17/CCL22 rises is
+close to definitional, so it identifies the **cellular source** rather than proving
+something independent. The macrophage depletion and the within-myeloid phenotype shift
+*are* independent.
+</div>
+
+### The two diseases on one map
+
+```{r overlay, out.width="100%", fig.cap="PRE-QC. FL neighbourhoods (orange rings) and Hodgkin hotspots (filled blue) over step 07's window. Pre-QC is shown because the spatial QC leaves 613 of 758 FOVs empty, so the post-QC version of this map is mostly blank tissue. Hotspot POSITIONS are unaffected by the QC mode; magnitudes are (section 4), so read this figure for where things are, not how strong they are."}
+img("output/12_fl_vs_hodgkin/IB1_fl_vs_hodgkin_r40um_preqc.png")
+```
+
+<details>
+<summary>The same window post-QC, for comparison</summary>
+
+```{r overlay-post, out.width="100%", fig.cap="Post-QC. Identical construction on the 15.8% of IB1 that survives the spatial filter."}
+img("output/12_fl_vs_hodgkin/IB1_fl_vs_hodgkin_r40um_postqc.png")
+```
+</details>
+
+```{r fl-dist}
+d1 <- rd("output/12_fl_vs_hodgkin/IB1_fl_vs_hodgkin_distance_postqc.csv")
+d2 <- rd("output/12_fl_vs_hodgkin/IB1_fl_vs_hodgkin_distance_preqc.csv")
+if (!is.null(d1)) {
+  dd <- rbindlist(list(cbind(mode="post-QC", d1), if (!is.null(d2)) cbind(mode="pre-QC", d2)), fill=TRUE)
+  tbl(dd, "Distance from Hodgkin hotspots to the nearest FL-like focus, against non-hotspot bins in the same window. Test: Mann-Whitney U on nearest-neighbour distances, one observation per bin. Two independent gene sets; two QC modes; no relationship.")
+}
+```
+
+---
+
+# Dead ends and negative results
+
+Four substantial lines of work returned negatives. Each is reported because the negative
+constrains what the data can support — and in two cases the failure produced the method
+that worked.
+
+## Clustered vs diffuse B cells failed its own control (step 08a)
+
+```{r s08}
+p <- rd("output/08_ib1_hierannot_bcells/marker_panel_scores.csv")
+if (!is.null(p)) {
+  w <- dcast(p[group != "diffuse"], panel + group ~ set, value.var="ratio")
+  tbl(w[order(panel, group)], "Panel score relative to diffuse -- descriptive ratios, no test. The point is the IDENTITY CONTROL: a contrast that cannot recover a B-cell panel in its own B cells has failed before any p-value is relevant. 'step-07 pool' is the failing version; 'HierAnnot B' is the same contrast on a positive B-cell definition.")
+}
+```
+
+<div class="verdict-no">
+The `BCELL` identity control came back at **2.86×** and `PC` at **0.63×** — the diffuse
+compartment was not the same cell type as the clustered one. Cause: step 07's `B_clean`
+tier is defined by exclusion and never tests B identity; the diffuse compartment is
+**13.4% B cells** against 48.9% clustered. Everything contrasted against it was
+uninterpretable.
+</div>
+
+**What it produced.** A cluster-level B-cell call (step 09, HierAnnot on
+`pearson_clusters_low`, 31,651 cells at a 4.2× marker margin), and a redone step 08 that
+passes both gates — `BCELL` 1.14, `PC` 1.00. On that footing the answer is a clean
+negative: FL-like foci are **not** transcriptionally distinguishable from other clustered
+B-cell neighbourhoods (all q ≥ 0.68; BCL2-within-GC 20.5% vs 23.4%).
+
+<div class="verdict-mid">
+**Revision 2026-09-01 — the verdict holds and the reason is better than stated here.** This
+section reads the null as a limit of power at n = 6 foci. Step 16 repeated the comparison
+*conditioned on cell type* and found **zero significant genes within B cells or within T
+cells**. So the FL focus is a change in the **mixture** of cells present, not in how any cell
+type behaves — a positive structural finding, not a failure to detect one. Step 16 contrast
+CT1.
+</div>
+
+## HRS cells cannot be called from this panel (step 10)
+
+```{r s10}
+s <- rd("output/10_hrs/summary.csv")
+if (!is.null(s)) tbl(s, "Step 10 summary. The held-out CD30 AUC of 0.55 is the gate that fails.")
+```
+
+```{r cd30-dist, fig.width=7, fig.height=4, fig.cap="CD30 has almost no dynamic range: 78% of positive cells carry a single transcript."}
+seg <- rd("output/10_hrs/hrs_segments.csv.gz", select=c("samp","cd30_ct"))
+if (!is.null(seg)) {
+  d <- seg[samp=="IB1", .N, by=.(cd30 = pmin(cd30_ct, 6L))][order(cd30)]
+  ggplot(d, aes(factor(cd30), N)) + geom_col(fill=ORANGE, width=.7) +
+    scale_y_log10() +
+    labs(title="TNFRSF8 (CD30) counts per cell, IB1", subtitle="log scale; max observed is 6 counts",
+         x="CD30 counts", y="cells", caption="Data: output/10_hrs/hrs_segments.csv.gz") + th
+}
+```
+
+<div class="verdict-no">
+CD30 tops out at 6 counts with 78% singletons; the 21-gene cHL programme *anti*-tracks CD30
+(AUC 0.46, held-out 0.552 — the gate that fails); and **RB1, which has no Hodgkin, is 6.27%
+CD30⁺ against IB1's 7.01%**. Rendered top-scoring objects are ordinary lymphocytes
+indistinguishable from RB1 controls. Any one of the last three closes the question; the RB1
+comparison alone is decisive, since near-identical CD30⁺ fractions in a sample without Hodgkin
+mean CD30 is not marking Hodgkin here.
+</div>
+
+<div class="verdict-mid">
+**One leg of this argument is withdrawn (revision 2026-09-01), and the conclusion is
+unaffected.** The original version also cited "sequencing depth alone predicts CD30 positivity
+at **AUC 0.716**". Step 16 later calibrated that statistic against genes whose presence is not
+in doubt and found **AUC 0.64–0.76 against depth for every sparse gene on this panel** —
+*IGKC* 0.693 (the transcript the FL clone is defined by), *CD3E* 0.695, *CD68* 0.731. CD30's
+0.716 is indistinguishable from those, so it says nothing about CD30 specifically: it is a
+property of thresholding sparse counts on this platform.
+
+The transferable lesson, which is why this is annotated rather than deleted: **a depth-vs-
+positivity AUC near 0.70 is not evidence that a sparse gene is noise.** Calibrate it against a
+gene you are certain of before using it to reject one you are not.
+</div>
+
+## Segmentation fragmentation was tested and rejected
+
+The hypothesis: HRS cells are giant, so segmentation splits them into normal-sized
+fragments, which would explain why called cells were only 1.6× background area.
+
+```{r merge-null}
+mn <- rd("output/10_hrs/hrs_merge_null.csv")
+if (!is.null(mn)) tbl(mn, "Adjacent CD30+ segments merged into connected components, against a density-matched permutation null.")
+```
+
+<div class="verdict-no">
+Adjacency runs **1.03× over the null in IB1 and 1.03× in RB1** — identical. Merging also
+made morphology *worse* (object area 1.76× background vs 1.99× per segment). The same
+code returns 2.21× (p = 0.030) on synthetic data where fragmentation is real, so this is
+a measurement rather than a failure to look.
+</div>
+
+## Results that did not survive their own scrutiny
+
+```{r retractions}
+r <- data.table(
+  Claim = c("Hodgkin niche avoids the FL foci",
+            "The diffuse compartment is residual plasma",
+            "Tfh programme differs around FL-like foci",
+            "Merging beats its null (p = 0.0495)",
+            "Hotspots sit on FOV seams"),
+  `First reported` = c("997 vs 681 um, p = 9.7e-21", "PC markers 1.5x elevated",
+                       "p = 1.66e-14", "1.03x, p < 0.05", "median 33.7 vs 41.0 um, p = 0.045"),
+  `On re-examination` = c("798 vs 757 um, p = 0.686; then p = 0.233 / 0.19 in step 12",
+                          "2.3x enriched but a minority; the real issue is 86.6% non-B",
+                          "p = 0.048 at the neighbourhood level, q = 0.53",
+                          "3% excess; significant only because n ~ 15,000",
+                          "real but modest; signal survives excluding all seam bins"),
+  Cause = c("threshold covering 29% of tissue compared regions, not niches",
+            "over-reading a secondary effect", "pseudo-replication over 6 neighbourhoods",
+            "p-value without an effect size", "flag caught ~half the tissue by geometry"))
+tbl(r, "Claims made and then corrected during the analysis.")
+```
+
+<details>
+<summary>Seam artifact: the check that the original FOV test could not do</summary>
+
+Step 11's FOV check asks whether hotspots concentrate in *particular* FOVs — they do not
+(25 FOVs, 1.4 bins each, FOV identity explains 31% of variance). But seams occur in
+**every** FOV, so that test is blind to them. A direct distance-to-seam test found
+hotspots modestly seam-biased (median 33.7 vs 41.0 µm, p = 0.045), with cells and
+transcript totals halving within 25 µm. The decisive control: dropping every bin within
+75 µm of a seam leaves IB1's q99 at 111.5 cp10k with **zero RB1 bins reaching it**.
+`SEAM_UM` was tightened from 50 µm (which flagged ~half the tissue by geometry) to 25 µm.
+</details>
+
+## What the negatives constrain
+
+<div class="verdict-mid">
+1. **No per-cell HRS identification** from this panel, with or without more data —
+   the limit is CD30's dynamic range, not the calling method.
+2. **No transcriptional signature separating FL-like foci** from other clustered B-cell
+   neighbourhoods at 6K depth. (Revision 2026-09-01: originally attributed to n = 6 foci.
+   Step 16 shows it is not a power limit — zero genes differ *within* B or T cells, so the
+   focus is a change in cell mixture, not cell state.)
+3. **No spatial relationship between the two diseases** in this node.
+4. **What does work** is regional: a Hodgkin chemokine field, lineage-independent and
+   decaying over **400–800 µm** (2.71× vs RB1's 1.20×; revision 2026-09-01, originally
+   described as "tissue-wide"), with focal DC-rich hotspots that have no RB1 equivalent.
+</div>
+
+---
+
+# Over-fixation in IB1
+
+Everything above excludes InSituType cluster `i` before doing anything else. That
+exclusion is not housekeeping — it rests on a formal diagnosis
+(`scripts/sbatch/qc_ib1_overfixation_summary.R`,
+`output/07_overfixation/ib1_overfixation_summary.md`) whose conclusions constrain how
+IB1 may be analysed at all. This section summarises it and connects it forward.
+
+<div class="verdict-ok">
+**Verdict: SUPPORTED.** 9 of 9 mechanism criteria fired; every competing hypothesis is
+eliminated. Cluster `i` is **37.1% of IB1** against **8.1% of RB1** — a 4.6× dose
+difference, spatially organised in IB1 and not in RB1.
+</div>
+
+## Two claims that must not be merged
+
+**(A) Cluster `i` inside IB1 is a technical defect population.** This is what the
+criteria test, and where the over-fixation call lives.
+
+**(B) IB1 as a whole is degraded relative to RB1.** **Not asserted, and not testable
+this way.** At matched depth IB1's B markers fall (MS4A1 0.17×, CD79A 0.43×) while its
+myeloid and stromal markers *rise* (LYZ 2.81×, COL1A1 2.22×) — the signature of
+different tissue composition, not uniform probe occlusion. Composition and fixation are
+entangled across blocks, so the cross-sample contrast is reported and set aside.
+
+## The argument in one paragraph
+
+The lesion is **qualitative, not quantitative**. Defect cells are not shallow — they
+carry **1.11× the counts** of their neighbours at **1.03× the area**. What they have lost
+is the ability to say anything: no gene is enriched in them (max log2FC **0.98** against
+**3.73** for other clusters). Against IB1's own unaffected cells at matched depth, the
+profile is dragged toward uniform — detection ratio falls with a gene's baseline
+prevalence at slope **−0.30** (p = 0.00096). Common genes lose, rare genes gain, which is
+what a flat background floor does to a compositional measure and is *not* how a cell type
+behaves. Measured directly: at equal library size (547 vs 560 counts) defect cells commit
+**0.61%** of their budget to the 22-gene marker panel against **1.55%** for matched
+neighbours — a ratio of **0.39**.
+
+Degradation would remove molecules and show up as fewer counts, fewer features and a
+rising negative-probe share. None is present. Crosslinking removes **access**, not
+material — the transcripts are there but unavailable, and counting continues on
+background.
+
+```{r overfix-overview, out.width="100%", fig.cap="Over-fixation diagnostic overview: all nine criteria."}
+img("output/07_overfixation/figures/overfixation_overview.png")
+```
+
+## The three load-bearing observations
+
+```{r overfix-evidence}
+ev <- data.table(
+  Observation = c("Protein channels split (C1)", "Protein and RNA co-vary (C8)",
+                  "Diffusion-shaped gradient (C7)"),
+  Finding = c("Membrane 0.75x, CD45 0.79x, but DAPI **rises** to 1.32x",
+              "Across 758 FOVs, rho -0.58 with Membrane, +0.26 with DAPI",
+              "Defect fraction climbs 12.3% -> 60.6% core to rim (rho 0.34); RB1 flat (rho -0.05)"),
+  `Why it matters` = c(
+    "Exactly the split expected when formaldehyde masks protein epitopes but leaves the DNA minor groove open. Localises the insult to the fixative, not the antibodies.",
+    "Two independent accidents would not co-vary field by field.",
+    "Formalin diffuses inward from the block surface, so over-fixation is rim-worst. Global radius outranks local boundary distance (rho -0.12) — a block-scale cause, not a section-handling artifact."))
+tbl(ev, "The observations that carry the diagnosis.")
+```
+
+```{r overfix-c1c7, out.width="49%", fig.show="hold", fig.cap="Left: protein-channel dissociation (C1) — antibody channels fall while DAPI rises. Right: the radial gradient (C7) — rim-worst in IB1, flat in RB1."}
+img("output/07_overfixation/figures/C1_channel_dissociation.png")
+img("output/07_overfixation/figures/C7_radial_gradient.png")
+```
+
+<details>
+<summary>All nine criteria and the hypotheses each eliminates</summary>
+
+```{r overfix-criteria}
+cr <- rd("output/07_overfixation/ib1_overfixation_criteria.csv")
+if (!is.null(cr)) tbl(cr[, .(id, criterion, verdict, eliminates = excludes_if_fired)],
+                      "Criteria. C2b and C10 are informational by design.")
+hy <- rd("output/07_overfixation/ib1_overfixation_hypotheses.csv")
+if (!is.null(hy)) tbl(hy, "Competing hypotheses and what killed each.")
+```
+
+```{r overfix-c2c9, out.width="49%", fig.show="hold", fig.cap="Left: the profile pulled toward uniform (C2) — common genes lose, rare genes gain. Right: the nonspecific floor at matched depth (C9)."}
+img("output/07_overfixation/figures/C2_lineage_blind_loss.png")
+img("output/07_overfixation/figures/C9_matched_depth_flatness.png")
+```
+</details>
+
+## The gradient, and what salvage costs
+
+```{r overfix-radial}
+rg <- rd("output/07_overfixation/ib1_overfixation_radial_gradient.csv")
+if (!is.null(rg)) tbl(rg[, .(sample = merge_sample, radial_quintile = rq, n,
+                             median_r, pct_defect, median_nCount, pct_strongB)],
+  "Defect fraction by radial quintile, core (1) to rim (5). IB1 climbs; RB1 does not.")
+sv <- rd("output/07_overfixation/ib1_overfixation_salvage.csv")
+if (!is.null(sv)) tbl(dcast(sv, filter ~ merge_sample, value.var = c("pct_kept","pct_strongB")),
+  "Salvage options. `pct_strongB` is the yield of confidently-called B cells — the quality gained per cell discarded.")
+```
+
+## How this constrains steps 07–12
+
+```{r overfix-link}
+lk <- data.table(
+  `Over-fixation finding` = c(
+    "Cluster `i` is a technical defect, 37.1% of IB1",
+    "Detection-rate comparisons across samples are confounded",
+    "The defect is a continuum; cluster `i` is a thresholded readout",
+    "Flattening makes common genes lose and RARE genes gain",
+    "Only 145 of 758 IB1 FOVs survive spatial QC"),
+  `Consequence downstream` = c(
+    "Excluded before scoring in steps 08b, 10, 11, 12 — reported, never silent",
+    "Every cross-sample number here is depth-standardised across pooled deciles, exactly as the salvage note requires",
+    "Dropping cluster `i` leaves a graded residue, so residual defect is a live confound in every IB1 number",
+    "CCL17 is a HIGH-prevalence gene (95th percentile of the panel), so flattening DEPRESSES it in defect cells",
+    "Drove the pre-QC map (step 11), which recovers 613 otherwise-dark FOVs"))
+tbl(lk, "The diagnosis is upstream of every result in this report.")
+```
+
+<div class="verdict-mid">
+**Tested, and it inverts the earlier reading.** The pre-QC check found CCL17+CCL22 at
+10.27 cp10k in `dim_membrane` cells against 9.98 in `ok` cells, and that near-parity
+(0.97×) was read as "the filter does not select the signal". A point estimate cannot
+carry that claim: it has no equivalence bound, and C2's flattening gives every gene an
+*expected* ratio, so a raw value near 1 could be a real effect cancelled by flattening.
+
+`scripts/sbatch/qc_11_flattening_vs_chemokine.R` regresses log2(detection ratio) on
+log2(baseline prevalence) across all 6,175 genes in 120,000 depth-matched IB1 cells, then
+locates the chemokines against the fit. Two things came out, and the first corrects an
+error in an earlier draft of this section: **CCL17 sits at the 95th prevalence percentile**,
+not the low end, so flattening *depresses* it — the opposite of what was assumed. And
+after that correction the chemokines are **enriched in the discarded cells by 1.20×
+(CCL17, +1.83 SD) and 1.18× (CCL22, +1.62 SD)**, while `CD68` (0.83×), `CD3E` (0.90×) and
+`MS4A1` (0.91×) go the other way — a specific contrast, not a global shift.
+
+*Consequence.* The QC filter is discarding chemokine-rich cells, so **the post-QC step-11
+estimate is conservative** and the headline IB1:RB1 contrast is not inflated by selection.
+But pre-QC expansion is no longer a free coverage gain: the 2.0M added cells carry a
+chemokine excess of unresolved origin. Note that their *detection rate* is up 13–18% while
+*abundance* is up only 3% — the signature of the same transcripts spread across more cells
+by poor segmentation, rather than more transcripts. **Pre-QC hotspot positions stand;
+pre-QC magnitudes should be read as upper bounds.**
+</div>
+
+<details>
+<summary>What the over-fixation analysis explicitly cannot settle</summary>
+
+- **Fixation time is not measured.** The data show a crosslinking-shaped lesion with a
+  surface-in gradient; they cannot separate prolonged formalin from a failed
+  antigen-retrieval or protease step. The block's processing record is outside this dataset.
+- **H7 (section handling) is disfavoured, not formally excluded** — global radius beats
+  local edge distance, but both are 2-D projections of a 3-D gradient.
+- **Claim (B) is untested, not disproved.** Whether IB1 as a whole is mildly over-fixed
+  needs a within-IB1 dose axis or a second control block of the same tissue type.
+- **Cluster `i` is not unique to IB1** — it is 8.1% of RB1 and flattens there too. The
+  diagnosis is about *dose* and spatial organisation, not about the mode existing.
+- **C9 rests on its marker-share term** (0.39×). Its entropy term moves the right way but
+  only slightly (310 vs 306 effective genes) and should not be quoted alone.
+- **CD45 is a leukocyte marker as well as a channel**, so its fall is not independent of
+  composition. C1 rests on the *split* between antibody channels and DAPI, which no
+  compositional change produces on its own.
+- **Cluster `i` was fit on this data**, so within-sample contrasts compare a data-derived
+  group against its own complement. RB1 is the guard: same definition, same flattening,
+  yet 4–5× rarer with no radial gradient and no channel coupling.
+</details>
+
+---
+
+# Appendix
+
+```{r appendix}
+files <- data.table(
+  Step = c("07","08a","08b","09","09b","10","11","11","12","14"),
+  Output = c("output/07_lightchain/IB1", "output/08_ib1_clustered_vs_diffuse",
+             "output/08_ib1_hierannot_bcells", "output/09_hierannot/IB1",
+             "output/09b_marker_relabel/IB1",
+             "output/10_hrs", "output/11_hodgkin_niche",
+             "output/11_hodgkin_niche_preqc", "output/12_fl_vs_hodgkin",
+             "output/14_lightchain_in_out/IB1"),
+  Contents = c("light-chain neighbourhoods, 4 radii",
+               "the failing control — kept as evidence",
+               "redone on a positive B definition",
+               "HierAnnot cluster-level B call",
+               "marker audit of HierAnnot; canonical labels",
+               "HRS call, views, cHL programme diagnostics",
+               "Hodgkin niche post-QC + all QC diagnostics",
+               "Hodgkin niche pre-QC (map only)",
+               "FL vs Hodgkin overlay",
+               "in vs out of light-chain neighbourhoods"))
+files[, Files := vapply(Output, function(p) {
+  f <- file.path(ROOT, p); if (dir.exists(f)) length(list.files(f)) else NA_integer_ }, 0L)]
+tbl(files, "Output inventory.")
+if (length(MISSING)) tbl(data.table(`Not found at render time` = unique(MISSING)),
+                         "Inputs unavailable when this report was rendered; the corresponding blocks are omitted above.")
+```
+
+<details>
+<summary>Known caveats carried forward</summary>
+
+- **n = 1 patient.** Every result is descriptive and hypothesis-generating.
+- **CCL17/CCL22 are secreted**, so a hotspot marks where chemokine signalling is
+  happening, not which cell produces it.
+- **Pre-QC positions are more trustworthy than pre-QC magnitudes** — those cells failed
+  QC for reasons beyond chemokine content.
+- **The RB1 control is post-QC only.** Any pre-QC specificity claim is unsupported.
+- **`SEAM_UM` and `MIN_CELLS` are choices**, both swept and reported; the seam-free
+  hotspot core (~12–18 post-QC) is what is stable across them.
+- **cp10k is compositional.** A genuine rise in some genes forces an apparent fall in the
+  panel's most abundant ones. Step 14 gates every call on detection rate agreeing; earlier
+  steps reporting cp10k alone have not been re-audited for this.
+- **Step 14 characterises 68 of 154 neighbourhoods** — the rest lack post-QC tissue. The
+  loss tracks size and defect burden, not light chain, but only 6 FL-like neighbourhoods
+  survive, so FL-vs-reactive comparisons there are underpowered rather than negative.
+- **Cluster labels are a marker audit, not ground truth** (step 09b). Statuses
+  `weak_support`, `ambiguous` and `defect_dominated` mark where the call is soft.
+</details>

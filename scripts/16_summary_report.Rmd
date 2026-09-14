@@ -1,0 +1,632 @@
+---
+title: "Comparing the follicular lymphoma in IB1 and RB1"
+subtitle: "CosMx 6K, P3_CosMx_v2 — step 16. What the comparison can and cannot support."
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    toc_depth: 3
+    number_sections: true
+    code_folding: hide
+    theme: flatly
+    self_contained: true
+    mathjax: null
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE,
+                      fig.align = "center", dpi = 110)
+knitr::opts_knit$set(root.dir = "/gpfs1/pi/avolaric/files_jrboyd/P3_CosMx_v2")
+suppressPackageStartupMessages({library(data.table); library(ggplot2); library(knitr)})
+setDTthreads(1)
+
+ROOT <- "/gpfs1/pi/avolaric/files_jrboyd/P3_CosMx_v2"
+TIER <- "matched"   # primary throughout; strict is the sensitivity tier
+## Guarded reads, as in step 13: a missing intermediate degrades one block, never the
+## render. Everything unavailable is listed in the appendix.
+MISSING <- character()
+rd <- function(p, ...) {
+  f <- file.path(ROOT, p)
+  if (!file.exists(f)) { MISSING <<- c(MISSING, p); return(NULL) }
+  tryCatch(fread(f, ...), error = function(e) { MISSING <<- c(MISSING, p); NULL })
+}
+rdt <- function(fmt, ...) rd(sprintf(fmt, TIER), ...)
+img <- function(p, cap = NULL) {
+  f <- file.path(ROOT, p)
+  if (!file.exists(f)) { MISSING <<- c(MISSING, p); return(invisible(NULL)) }
+  knitr::include_graphics(f, rel_path = FALSE)
+}
+imgt <- function(fmt, cap = NULL) img(sprintf(fmt, TIER), cap)
+tbl <- function(d, cap = NULL, digits = 3) {
+  if (is.null(d) || !nrow(d)) return(invisible(NULL))
+  kable(d, caption = cap, digits = digits, format = "html",
+        table.attr = 'class="table table-sm table-striped"')
+}
+SURF<-"#fcfcfb"; INK<-"#0b0b0b"; INK2<-"#52514e"; MUTED<-"#898781"; GRID<-"#e1e0d9"
+BLUE<-"#2a78d6"; ORANGE<-"#eb6834"; AQUA<-"#1baf7a"
+SAMP_COLS <- c(IB1 = BLUE, RB1 = ORANGE)
+th <- theme_minimal(base_size = 11) +
+  theme(plot.background=element_rect(fill=SURF,colour=NA),
+        panel.background=element_rect(fill=SURF,colour=NA),
+        panel.grid.minor=element_blank(),
+        panel.grid.major=element_line(colour=GRID,linewidth=.25),
+        plot.title=element_text(colour=INK,face="bold"),
+        plot.subtitle=element_text(colour=INK2,size=9),
+        plot.caption=element_text(colour=MUTED,size=8,hjust=0),
+        legend.position="top", legend.justification="left")
+```
+
+```{css, echo=FALSE}
+.table { font-size: 0.86em; }
+details { background:#f6f5f1; border-left:3px solid #c3c2b7; padding:.6em 1em; margin:1em 0; }
+summary { cursor:pointer; font-weight:600; color:#52514e; }
+.verdict-ok  { border-left:4px solid #1baf7a; padding:.5em 1em; background:#f2faf6; margin:1em 0; }
+.verdict-no  { border-left:4px solid #eb6834; padding:.5em 1em; background:#fdf4ef; margin:1em 0; }
+.verdict-mid { border-left:4px solid #2a78d6; padding:.5em 1em; background:#f1f6fc; margin:1em 0; }
+```
+
+# The question, and the one-paragraph answer
+
+**IB1** is a composite lymph node from one patient: classic Hodgkin lymphoma together with
+follicular lymphoma. **RB1** is the FL recurrence from the same patient — the same clone, no
+Hodgkin component. Steps 07–12 localised the two diseases *inside* IB1 and used RB1 only as a
+whole-sample null. This step asks the obvious next question: **does the FL look different when
+it sits next to a Hodgkin field?**
+
+<div class="verdict-no">
+**The direct comparison is not identifiable, and that is the first result.** IB1's FL foci and
+RB1's follicles do not overlap in cell composition: matching 100 µm bins on B-cell share,
+depth, cell count and typability matched **2 of 44**. IB1's *most* B-dense quartile is less
+B-rich than RB1's *least* B-dense quartile. Any unmatched cross-sample contrast measures cell
+mix, not FL biology — and a difference-in-differences does not rescue it, because the two
+reference tissues differ too.
+</div>
+
+<div class="verdict-ok">
+**What the data does support**, once the unit is changed from tissue to cell type, to region, or
+to arrangement: a Hodgkin chemokine field that grades into IB1's B-dense tissue and carries
+BATF3/CD40/IL6 with it; a CCR4 gradient without a Treg signature; Tfh as the PD-1 source in
+both nodes; a spatially structured IB1 node against a spatially homogeneous RB1; and a clean
+negative on PD-1/PD-L1 itself.
+</div>
+
+# How to read these numbers
+
+<div class="verdict-mid">
+**Companion glossary.** A standalone reference for the immunology and the statistics used
+across this project — terms tagged as either field-standard or specific to this analysis —
+is at `output/17_summary/composite_node_lexicon.html`. It covers the PD-1 axis, the cell
+states and modules, the two diseases, and a section each on the metrics and the statistical
+tests. This report's methods section above is self-contained; the lexicon is broader and
+covers steps 07-17.
+</div>
+
+```{r methods-child, child="scripts/lib/methods_notes.Rmd"}
+```
+
+# What was built
+
+```{r built}
+b <- data.table(
+  Stage = c("16a regions","16b cell types","16c matching","16d bin DE","16j/16m cell-type DE",
+            "16k composition","16g field gradient","16h co-occurrence","16r FL-edge rings",
+            "16e checkpoint","16n Tfh figures"),
+  Question = c("region label per cell, both samples",
+               "cross-sample-comparable cell types incl. Tfh",
+               "can FL territory be matched across samples?",
+               "region-unit DE, bin as the unit",
+               "DE conditioned on cell type",
+               "composition, and enrichment ratios",
+               "does the Hodgkin field grade into nearby tissue?",
+               "is the same cell mix arranged differently?",
+               "expression across the FL boundary",
+               "PD-1 / PD-L1 / PD-L2 in detail",
+               "what is a Tfh cell here?"),
+  Verdict = c("built and validated","validated on held-out markers","**FAILED — the result**",
+              "C1/C2/C5 sound; C3/C4 retracted","the fix for identifiability",
+              "needed two corrections","**strongest positive**","**organisational difference**",
+              "dose-response in both nodes","**mostly negative**","Tfh validated, Treg not"))
+tbl(b, "Every stage ran on both QC tiers unless noted. Results are reported only where the two tiers agree.")
+```
+
+<details>
+<summary>The two QC tiers, and why a symmetric one had to be built</summary>
+
+IB1 lost **2,013,225** cells to a staining/section rule that RB1 was never evaluated for
+(`qc_spatial_staining == "not_evaluated"`, `fail_staining = 0`). The existing pools are
+therefore asymmetrically filtered, and every published cross-sample number inherits that.
+
+- **`matched`** (primary) — `qc_spatial_fovpx == "ok" & qcCellsPassed`, ignoring staining
+  entirely: **IB1 1,877,697 / RB1 1,399,189**. Same rules both samples; IB1 is the *larger*
+  pool. Cluster `i` (over-fixation) is then dropped per cell, leaving 767,395 / 1,286,223.
+- **`strict`** (sensitivity) — the existing `qc_passing_all` pools, which after the cluster-`i`
+  drop reproduce `output/10_hrs/hrs_segments.csv.gz` exactly (251,747 / 1,286,223).
+
+The symmetric tier also settles something step 13 lists as FAILED. At the matched tier IB1 has
+**80 chemokine hotspots (66 seam-free)** and **zero RB1 bins clear the same cut** — the
+pre-QC-symmetric negative control the project previously lacked.
+</details>
+
+# Regions, and whether RB1 can be regionalised at all
+
+RB1's light-chain readout is degenerate: 178 of 178 neighbourhoods are kappa-restricted and
+1,276,791 of 1,286,223 cells sit inside one. Clonality cannot partition it. The axis that can is
+**architecture** — per-100 µm-bin B-cell share among *lineage-assigned* cells, thresholded on
+within-sample quantiles so the two nodes are compared on rank rather than on absolute
+composition.
+
+<details>
+<summary>Why the denominator matters, and a correction made along the way</summary>
+
+The first version called architecture on raw `f_B` and its own diagnostic rejected it:
+`B_sparse` came out **lineage-negative** dominated in both samples (median unassigned fraction
+0.21 in RB1, 0.36 in IB1) while the T fraction barely moved. "B-poor" was tracking how much of a
+bin could be typed at all. Renormalising to the assignable cells removed the confound and then
+the classes separated properly — and exposed an asymmetry:
+
+- **RB1's B-poor tissue is a genuine T-zone**: T share among assigned rises 2.07×, myeloid 5.09×.
+- **IB1's is myeloid-rich and T-*depleted***: T share 0.53×, myeloid 1.86×.
+
+So "interfollicular" is supported in RB1 and **not** in IB1. The two nodes' non-follicular tissue
+is different tissue, which is what later sank the difference-in-differences.
+</details>
+
+`B_dense` passes a spatial-coherence permutation in both samples (p = 0.005), and in IB1 — where
+an independent clonality-based FL call exists — it recovers **72–77%** of the light-chain-defined
+FL cells. That is the justification for using it on RB1.
+
+```{r regions-fig, out.width="100%", fig.cap="Disease regions and the shared architecture axis. RB1 shows follicle-scale B_dense patches with an interconnected interfollicular network; IB1's post-QC tissue is fragmented and its FL foci are small and few."}
+imgt("output/16_regions/%s/figures/fig_16_regions_RB1.png")
+imgt("output/16_regions/%s/figures/fig_16_regions_IB1.png")
+```
+
+## How much of the section the QC removes
+
+The maps above are the primary (`matched`) tier. Running the identical region builder with **no
+spatial QC at all** shows what the filter costs in coverage — and it is not subtle.
+
+```{r preqc-fig, out.width="100%", fig.cap="Pre-QC: the same region builder over all 4,406,940 segmented cells. IB1 resolves into two complete tissue pieces with follicle-scale B_dense structure across both. The fragmentation visible in the post-QC map above is the filter, not the tissue."}
+img("output/16_regions/preqc/figures/fig_16_regions_IB1.png")
+```
+
+```{r preqc-tab}
+a <- rd("output/16_regions/preqc/bin_region_summary.csv")
+b <- rdt("output/16_regions/%s/bin_region_summary.csv")
+if (!is.null(a) && !is.null(b)) {
+  a[, tier := "preqc"]; b[, tier := TIER]
+  tbl(rbind(a, b, fill = TRUE)[samp == "IB1"][order(bin_region, tier)][
+        , .(tier, bin_region, bins, cells, fovs, med_depth)],
+      "IB1 coverage, pre-QC against the primary tier. FL_focus goes from 89 bins in 23 FOVs to 102 in 26, and all 976 light-chain FL member cells survive pre-QC against 45.4% at the strict tier.")
+}
+```
+
+<div class="verdict-mid">
+**Pre-QC is for POSITION, not magnitude.** Step 11 established that the spatial filter discards
+cells carrying *more* chemokine than it keeps, so a pre-QC cp10k is not comparable to a post-QC
+one, and RB1's staining flag is `not_evaluated` so the cross-sample control cannot follow either.
+The pre-QC tier derives its own thresholds (hotspot cut 177.8 cp10k against 176.1 matched, 120.9
+strict) and they must not be compared across tiers. IB1 is 59% over-fixation cluster `i` pre-QC,
+dropped per cell as always. Use these maps to see where things are; use the matched tier for
+every number.
+</div>
+
+```{r region-summary}
+tbl(rdt("output/16_regions/%s/bin_region_summary.csv"),
+    "Bin-level regions, the unit of every region test below. IB1's FL_focus is 89 bins across 23 FOVs at the matched tier — against 44 across 9 at the strict tier, which is why the symmetric tier matters for power and not only for fairness.")
+```
+
+# The comparison that cannot be made
+
+```{r matching}
+tbl(rdt("output/16_matched/%s/matched_summary.csv"),
+    "Cross-sample bin matching on B share, log cell count, log depth and typability. Balance is achieved where matching succeeds (worst |SMD| < 0.11) — the failure is coverage, not balance.")
+tbl(rdt("output/16_matched/%s/matched_balance.csv")[grepl("^FL", group)],
+    "The FL pairing in detail. The pre-matching standardised mean difference on fb_a is 4.6 standard deviations.")
+```
+
+```{r matching-fig, out.width="70%", fig.cap="Standardised mean differences before and after matching. The reference groups match; the FL groups do not, because there is no overlap to match on."}
+imgt("output/16_matched/%s/figures/fig_16_matching_balance.png")
+```
+
+<div class="verdict-no">
+**2 of 89 IB1 FL bins found a composition-matched RB1 partner** (2 of 44 at the strict tier).
+The cleanest statement of why: IB1's most B-dense quartile has a B share among typed cells of
+**0.286**, and RB1's least B-dense quartile has **0.484**. The distributions are disjoint. The
+recurrence has effaced the node so completely that no part of it is as B-poor as the B-richest
+part of the composite node.
+</div>
+
+## Two contrasts that were retracted
+
+**C3, the unmatched cross-sample FL contrast.** Its top genes — CCL19 +3.59, CCL21 +2.95,
+LYZ +3.12, APOE +3.67, PTGDS +2.67 — are precisely the genes that mark RB1's *interfollicular*
+zone in C2. It was measuring that IB1's FL bins are 17.6% B cells sitting in a myeloid-rich node
+while RB1's follicular bins are 50.9% B. Reported as an effect size only.
+
+**C4, the difference-in-differences.** Intended as the primary result, on the reasoning that a
+per-sample technical shift cancels. It returned the same gene list, because the two reference
+groups are also different tissue (above). Subtracting a T-zone-referenced contrast from a
+myeloid-referenced one leaves the T-zone difference behind wearing a result's clothing. Its
+bootstrap p also saturates at the floor for ~900 genes because it resamples bins, not FOVs.
+**C4 is withdrawn, not reinterpreted.**
+
+# Changing the unit: condition on cell type
+
+A B cell is a B cell in either node, so conditioning on cell type removes composition by
+construction rather than by matching — the move step 14 made when it tested expression within
+each cluster instead of pooled.
+
+```{r ctde}
+d <- rdt("output/16_ct_de/%s/ct_de.csv.gz")
+if (!is.null(d)) {
+  s <- d[, .(genes_sig = sum(concordant & q < 0.05 & !is_selection),
+             fov_robust = sum(concordant & q < 0.05 & !is_selection &
+                              !is.na(q_fov) & q_fov < 0.05),
+             n_a = n_a[1], n_b = n_b[1]), by = .(contrast, celltype)]
+  tbl(s[order(contrast, celltype)],
+      "Cell-type-conditioned DE. Test: Mann-Whitney U per gene, one observation per bin pseudobulk, BH-adjusted across genes within each contrast. `fov_robust` repeats the same test with bins collapsed to their FOV.")
+}
+```
+
+<div class="verdict-mid">
+**93% of the apparent cross-sample B-cell difference was sequencing depth.** Matched, 251 genes;
+unmatched, 2,894 — 2,693 lost to depth matching alone. Depth matching balanced every contrast
+(worst SMD 1.48 → 0.01) at heavy cost in n (IB1 FL B cells: 80 → 27 bin-pseudobulks).
+</div>
+
+Two earlier results turn out to be **compositional rather than cell-state**:
+
+- **IB1 FL focus vs IB1 background has zero significant genes within B or T cells.** The
+  CXCL13/CLU/FCER2/IGHD signature reported at bin level is "more B cells present", not B cells
+  behaving differently.
+- **The BATF3 hotspot signal likewise vanishes within B and T** (myeloid: 2 genes). The cHL
+  hotspot is a DC-rich *region*, not a state change — which matches step 11's own wording, now
+  demonstrated rather than assumed. Note this does **not** mean BATF3 is absent regionally; see
+  the field section, where it is the strongest gene in the phase.
+
+What survives, both tiers, composition- and depth-free — IB1 FL vs RB1 follicular:
+
+- **B cells**: IGHD +2.04, SELL +1.98 (naive/mantle) up in IB1; JCHAIN −2.62 (plasmacytic) down.
+- **T cells**: LAG3 +1.99, CXCL13 +1.77, CTLA4 +0.70, TIGIT −0.65.
+- **Myeloid**: CXCL9 −2.83.
+
+<details>
+<summary>A caveat on the B-cell signature</summary>
+IGHD and SELL are naive/mantle markers. IB1's FL foci are focal within a largely non-FL node, so
+they plausibly mix clone with residual normal mantle B cells — which would produce exactly this
+signature. The result is reported; the alternative explanation is not excluded.
+</details>
+
+# Composition: what follows the FL B cells
+
+```{r comp-fig, out.width="85%", fig.cap="Enrichment in FL territory relative to each sample's own B-cell enrichment. Tfh is the only population that follows the B cells to a comparable degree in both nodes."}
+imgt("output/16_composition/%s/figures/fig_16_composition_did.png")
+```
+
+```{r comp}
+tbl(rdt("output/16_composition/%s/enrichment_relative_to_B.csv")[
+      grepl("architecture", pairing)][order(-rel_to_B_IB1)][, .(
+      celltype, enrich_IB1, enrich_RB1, rel_to_B_IB1, rel_to_B_RB1, follows_B_ratio)],
+    "Symmetric B_dense-vs-B_sparse definition, normalised to each sample's own B enrichment. Descriptive ratios of cell-type shares -- no test, so read the size and not a threshold.")
+```
+
+<details>
+<summary>Why the raw difference-in-differences on composition also needed fixing</summary>
+It came out positive for all 16 cell types under both region definitions — one scale artifact,
+not 16 findings. IB1's `B_dense`-vs-`B_sparse` contrast spans a B share of 0.286 → 0.029 (~10×)
+while RB1's spans 0.790 → 0.484 (~1.6×), because RB1 is uniformly B-rich. IB1's B enrichment is
+therefore 17.99× against RB1's 1.65× before any other cell type is considered, and everything
+inherits it. Dividing by the same-sample B enrichment removes it.
+</details>
+
+**Tfh is the only population that follows the FL B cells at a comparable rate in both nodes**
+(0.465 IB1 / 0.416 RB1 of the B enrichment), leading the next population by 3–4× in each sample
+independently. Rank and direction hold across tiers; the magnitude does not (ratio 1.12 matched,
+1.52 strict), so the rank is the claim.
+
+# The Hodgkin field, and what it does to nearby tissue
+
+This is the strongest positive result, and it runs entirely inside IB1 — so it is immune to the
+composition disjointness, the QC asymmetry and the depth difference all at once.
+
+```{r c5}
+d <- rdt("output/16_de/%s/de_contrasts.csv.gz")
+if (!is.null(d)) tbl(head(d[contrast == "C5" & concordant & q < 0.05 & !is_selection][
+      order(-abs(log2fc))][, .(gene, cp10k_hotspot = round(cp10k_a,2),
+      cp10k_background = round(cp10k_b,2), log2fc = round(log2fc,2),
+      det_log2 = round(log2fc_det,2), q = signif(q,2), q_fov = signif(q_fov,2))], 14),
+  "cHL hotspot vs IB1 background, matched tier. Test: Mann-Whitney U per gene, one observation per bin pseudobulk, BH-adjusted across the whole panel; `q_fov` is the same test with FOV as the unit. 551 genes are significant and survive FOV collapse (222 at the strict tier). CCL17/CCL22 define the region and are excluded.")
+```
+
+BATF3 is tier-consistent and stronger at the matched tier: **+1.77 → +2.07 log2FC, q = 3e-37**,
+FOV-robust in both. CD40 +0.92 and IL6 +1.31 likewise. These are step 10's Hodgkin-specific genes,
+recovered from an independent construction.
+
+## Is hotspot BATF3 real, or spillover from DCs?
+
+Hotspots are DC-rich, and a BATF3-high cDC bleeding transcripts into its neighbours would raise
+BATF3 in every adjacent cell regardless of type — at roughly the one-transcript-per-cell level
+the data shows. Spillover and a field make opposite predictions about distance to the nearest cDC.
+
+```{r batf3}
+tbl(rd("output/16_checkpoint/batf3_spillover.csv")[, .(dband,
+      n_hot = cells_cHL_hotspot, n_bg = cells_background,
+      cp10k_hot = cp10k_cHL_hotspot, cp10k_bg = cp10k_background, ratio_cp10k,
+      det_hot = pct_det_cHL_hotspot, det_bg = pct_det_background, ratio_det,
+      depth_hot = med_depth_cHL_hotspot, depth_bg = med_depth_background)],
+  "BATF3 in NON-cDC cells, hotspot vs background, by distance to the nearest cDC, depth-matched within decile. Descriptive: no test is run here -- the design decides between spillover and a field by the SHAPE of the ratio across distance bands, which a p-value on any single band would not capture.")
+```
+
+<div class="verdict-ok">
+The ratio is **highest farthest from any cDC** (5.14× at >120 µm, detection agreeing at 3.08×),
+which is the opposite of spillover decay. A real regional field, not a segmentation artifact.
+</div>
+
+## The CCR4 gradient
+
+CCL17 and CCL22 signal through CCR4, which recruits Treg and Th2 cells. That was declared as the
+readout **before** the genome-wide scan, so it cannot be a post-hoc pick from 6,175 genes.
+
+```{r ccr4}
+tbl(rdt("output/16_gradient/%s/ccr4_axis.csv")[, .(set, gene, bins, fovs,
+      rho_field = round(rho_field,3), q_field = signif(q_field,2),
+      rho_field_fov = round(rho_field_fov,3), is_selection)][order(set, -abs(rho_field))],
+  "Test: Spearman's rho against the local CCL17+CCL22 field, one observation per bin, BH-adjusted across the gene set; `rho_field_fov` repeats it with FOV as the unit. Rank-based, so it needs monotonicity and not linearity. Hotspot bins are excluded from the response; CCL17/CCL22 define the exposure and are held out.")
+```
+
+```{r ccr4-fig, out.width="90%", fig.cap="The pre-declared genes against distance from the nearest hotspot. Only CCR4 and CTLA4 track the field; the Treg markers do not. Y-axes are free — read the span in each strip, not the slope."}
+imgt("output/16_gradient/%s/figures/fig_16_field_gradient.png")
+```
+
+<div class="verdict-mid">
+**CCR4 rho = 0.415 inside FL foci** (q = 1.4e-4, and 0.431 across FOV means — robust at both
+units), against 0.120 tissue-wide: the association is ~3.5× stronger in FL tissue. **But FOXP3 is
+flat (rho −0.007, rank 2534/6175) and IL2RA is negatively associated.** This is a CCR4 gradient
+**without** a Treg signature — Th2 or other CCR4⁺ cells, or CCR4 upregulation, not Treg
+recruitment. It should not be reported as a Treg result.
+</div>
+
+Genome-wide, the field axis independently recovers the cHL programme: BATF3 0.555 and CD40 0.389
+lead the positive list with IL6 0.335, while the negative list is the normal T-zone architecture
+(CXCL12 −0.572, CCL21 −0.539, C1QA/B/C). 1,723 of 6,175 genes are field-associated at both units.
+
+# Arrangement: the same cell mix, organised differently
+
+Composition and expression are nearly exhausted as questions once the cell-type conditioning
+shows most regional signal is compositional. What had not been asked is whether the same cell
+types are *arranged* differently. The null permutes labels within local-density deciles, holding
+composition and geometry fixed and randomising only the assignment of types to positions.
+
+```{r cooccur-fig, out.width="100%", fig.cap="Mean type-b neighbours within 20 um of a type-a cell, against a density-matched null. 1.0 is exactly chance. Numbers shown where q < 0.05."}
+imgt("output/16_cooccur/%s/figures/fig_16_cooccurrence.png")
+```
+
+```{r cooccur}
+tbl(rdt("output/16_cooccur/%s/tfh_partners.csv")[, .(samp, bin_region, b,
+      n_a, obs, null, enrich, q = signif(q,2))][order(samp, bin_region, -enrich)],
+  "Tfh and its neighbours. Test: observed neighbour counts against a permutation null that reshuffles cell-type labels while holding local cell density fixed, one observation per neighbourhood, BH-adjusted. `enrich` is observed/null. RB1 sits at chance throughout; IB1 does not.")
+```
+
+<div class="verdict-ok">
+**IB1's node is spatially structured; RB1's is not.** In IB1 background (best powered, q = 0.014
+at both tiers) Tfh self-aggregate at **2.74×** chance, preferentially neighbour B cells at
+**1.62×**, and avoid macrophages at **0.47×**; lymphocyte/myeloid segregation runs 0.48–0.57×
+throughout. In RB1 essentially every pair sits at chance (0.93–1.09). Tfh–B in RB1 follicles is
+9.82 observed against 9.89 expected — a Tfh there has ten B neighbours because the tissue is 51%
+B, with no preferential pairing on top.
+</div>
+
+This is the one place where "differently organised" is demonstrated rather than inferred, because
+the null holds composition fixed by construction. It also fits the effacement story: RB1's clone
+has homogenised the node, IB1 retains architecture.
+
+# Across the FL boundary
+
+Rings replace step 14's binary in/out with a dose–response. At n = 1 a two-group p-value says two
+arbitrary groups differ; a monotone gradient across seven bands is much harder to produce by
+accident. The boundary is defined identically in both samples from the shared architecture axis,
+and the unit is the FOV.
+
+```{r rings-fig, out.width="95%", fig.cap="Expression across the B_dense (FL) boundary. Dashed line is the boundary; left of it is inside FL tissue."}
+imgt("output/16_rings/%s/figures/fig_16_fl_edge_rings.png")
+```
+
+```{r rings}
+d <- rdt("output/16_rings/%s/ring_trend_concordance.csv")
+if (!is.null(d) && "both" %in% names(d))
+  tbl(head(d[both == TRUE][order(-abs(med_rho_IB1))][, .(gene,
+        IB1 = round(med_rho_IB1,3), RB1 = round(med_rho_RB1,3))], 12),
+      "Genes edge-graded in both nodes, same direction (51 of 103; between-sample correlation of the trend 0.64). Test: Spearman's rho of expression against ring index within each FL-boundary neighbourhood, then the MEDIAN rho across neighbourhoods -- the neighbourhood is the replicate, not the ring. Negative = higher inside FL tissue.")
+```
+
+<div class="verdict-mid">
+**IB1's `B_dense` tissue is not FL-programme tissue, and this qualifies several results above.**
+RB1's boundary grades the FL germinal-centre programme — BCL2 −0.70, BCL6 −0.70, MME/CD10 −0.74,
+RGS13 −0.70, IGKC −0.83. In IB1 the same genes are flat (MME +0.10, BCL6 0.00, BCL2 −0.10,
+RGS13 +0.14). IB1's B-dense tissue has B-cell markers but not the tumour programme.
+
+What it has instead is the Hodgkin field: **CCL17 runs 21.8 → 7.3 and CCL22 11.4 → 3.3 across the
+boundary in IB1, and both are flat in RB1** (~1.5, ~1.0), with CTLA4, LAG3 and CXCL13 doing the
+same.
+
+Consequence: any result computed on the shared `arch` axis — including the Tfh composition
+finding — is about **B-dense tissue**, and the two nodes' B-dense tissue is different biology.
+Results computed on the light-chain FL definition (the cell-type-conditioned contrasts, C1) are
+genuinely about FL.
+</div>
+
+# PD-1, PD-L1 and PD-L2
+
+<div class="verdict-mid">
+**This section reports a negative. Step 17 was built to test whether that negative holds,
+and it both strengthens and partly overturns what follows.** See
+`output/17_summary/step17_PD1_PDL1.html`. In brief:
+
+- The negative **holds** for the cross-sample comparison, and more strongly than stated
+  here. A within-cell-type difference-in-differences against the two samples' reference
+  zones leaves **0 of 30 gene x stratum combinations significant**; *CXCL13*'s cross-sample
+  odds ratio of 5.21 deflates to 0.98 and *LAG3*'s 4.64 to 1.45. The between-slide offset
+  for these genes is larger than any regional effect within either slide, which bounds the
+  whole two-section design.
+- The negative is **overturned within each sample**, where a per-cell binomial model with
+  depth stratified out has power that the region-level rank tests here do not. IB1's Hodgkin
+  hotspots carry elevated *CD274* (OR 1.74) and *PDCD1LG2* (OR 1.81) with *PDCD1* flat --
+  ligand side only. RB1's follicles carry *PDCD1* in T cells at OR 1.82
+  (*q* = 4.6 x 10^-14), the recognised follicular PD-1 pattern of FL.
+- Step 17 also **retracts** its own sign-consistency result on the same grounds.
+</div>
+
+## What a "Tfh" cell is here
+
+The label is a marker-argmax call, not a cluster: cells first called `T` on CD3D/E/G/TRAC, then
+an argmax within them over {Tfh, Treg, CD8_T, CD4_conv}. **PDCD1 and CTLA4 are excluded from the
+definition**, so the PD-1 readout is not circular.
+
+```{r tfh-fig, out.width="100%", fig.cap="Marker profile by cell type and node. The HELD OUT block is the evidence: the call never saw PDCD1 or CTLA4."}
+imgt("output/16_tfh/%s/figures/fig_16_tfh_markers_by_celltype.png")
+```
+
+```{r tfh-check}
+tbl(rdt("output/16_tfh/%s/../../16_celltypes/celltype_holdout_check.csv"),
+    "Rank among SIBLINGS on marker genes -- descriptive, no test. Only `genuinely_held_out` rows are evidence: a gene used to make the call cannot validate it.")
+```
+
+**Tfh is validated** — top sibling on held-out PDCD1 (2.49 cp10k, 1.19× the next). **Treg is
+not** — rank 2 behind Tfh on CTLA4 (3.07 vs 3.26), so it has no independent validator on this
+panel and is flagged weakly-supported wherever it appears. On this panel every myeloid and DC
+marker is definitional, so Macrophage/cDC separation is descriptive, not validated.
+
+```{r tfh-region-fig, out.width="100%", fig.cap="The Tfh profile is stable across regions: defining markers and held-out PDCD1 are elevated in the Tfh column of every regional category."}
+imgt("output/16_tfh/%s/figures/fig_16_tfh_markers_by_region.png")
+```
+
+```{r tfh-views, out.width="100%", fig.cap="A representative Tfh cell in IB1's FL focus and in RB1's follicle. Panels: colorized image with slide locator, cell boundaries by type, and transcripts with PDCD1 in its own colour. Red box marks the same cell in all panels. Selection is a stated rule, not a hand-picked best case."}
+imgt("output/16_tfh_views/%s/tfh_IB1_FL_focus_2_517_2780.png")
+imgt("output/16_tfh_views/%s/tfh_RB1_FL_follicular_1_403_1370.png")
+```
+
+## The measurement floor, which bounds everything below
+
+```{r negfloor}
+tbl(rd("output/16_checkpoint/negprobe_verdict.csv")[gene %in%
+      c("PDCD1","CD274","PDCD1LG2","CTLA4","LAG3","CXCL13","IGKC","CD3E","CD68")][, .(
+      gene, rec_thr, pct_det_thr1_IB1, pct_det_at_rec_IB1, ratio_at_rec_IB1, ratio_at_rec_RB1)],
+  "Detection against the mean blank probe. At >=1 count CD274 is 2.7x the blank rate; at >=2 the blank rate collapses to 0.05% and it is 25.8x. Every panel gene reaches >=10x specificity at >=2 counts.")
+```
+
+<details>
+<summary>Depth predicts positivity at AUC ~0.70 for every gene, including the positive controls</summary>
+
+IGKC — which is how the FL clone was *defined* — shows 0.693/0.733; CD3E 0.695/0.649; CD68
+0.731/0.671; against PDCD1 0.711 and CD274 0.699. So **AUC ≈ 0.70 versus depth is a property of
+thresholding a sparse count on this platform, not a signature of noise.** The consequence is that
+depth matching is mandatory for any per-cell positivity comparison, which is done throughout.
+
+Side note, not acted on: step 10 rejected per-cell CD30 partly on TNFRSF8's depth-AUC of 0.716,
+which is indistinguishable from IGKC's. That closed avenue may deserve revisiting; CLAUDE.md
+keeps it closed and this step did not reopen it.
+</details>
+
+## Where PD-1 lives, and what does not differ
+
+```{r pd1}
+d <- rdt("output/16_checkpoint/%s/checkpoint_pooled.csv")
+if (!is.null(d)) tbl(dcast(d[gene == "PDCD1" & celltype %in% c("Tfh","Treg","CD4_conv","CD8_T",
+      "T_unresolved","B","Macrophage","Monocyte","cDC")], celltype ~ samp + bin_region,
+      value.var = "cp10k"),
+  "PDCD1 cp10k by cell type and region. POOLED over cells — effect sizes, not tests. Tfh leads in every region of both nodes.")
+```
+
+**Tfh is the PD-1 source in both nodes** (3.78 in IB1 FL foci, 4.12 in RB1 follicles, against
+1.0–2.8 for every other type), established independently of the call.
+
+```{r pd1-test}
+d <- rdt("output/16_checkpoint/%s/checkpoint_region_unit.csv")
+if (!is.null(d)) tbl(d[gene %in% c("PDCD1","CD274","PDCD1LG2")][order(contrast, celltype, gene)][
+      , .(contrast, celltype, gene, n_a, cp10k_a = round(cp10k_a,2),
+          cp10k_b = round(cp10k_b,2), log2fc = round(log2fc,2), q = signif(q,2), concordant)],
+  "The same three genes with the REGION as the unit, depth-matched, within cell type. Test: Mann-Whitney U on bin pseudobulks, BH-adjusted. Nothing reaches q < 0.05 -- see the power bound below before reading that as absence.")
+```
+
+<div class="verdict-no">
+**PDCD1, CD274 and PDCD1LG2 differ nowhere** between regions within any cell type after depth
+matching (all q ≥ 0.11), and the spatial PD-1→PD-L1 pairing shows **no reproducible engagement**:
+every significant pairing result either flips between tiers or is a 0.7 µm effect on n = 7,182.
+What *does* differ within T cells (both tiers, IB1 FL vs RB1 follicular) is LAG3 +1.99,
+CTLA4 +0.70 and TIGIT −0.65, with CD80 −1.63 and CD86 −1.24 in B cells. The co-stimulation and
+exhaustion landscape differs while PD-1/PD-L1 itself is flat.
+
+At ~1–2% positivity this is a **floor result, not proof of absence** — a distinction that matters
+if this reaches a checkpoint-blockade discussion.
+</div>
+
+```{r pairing}
+tbl(rdt("output/16_checkpoint/%s/spatial_pairing.csv"),
+    "PD-1+ to nearest ligand+ distance against a density- and cell-type-matched permutation null, one observation per region. ratio > 1 with p < 0.05 would mean closer than chance. The null holds cell density and composition fixed, so it tests ARRANGEMENT and not abundance.")
+```
+
+# What this step cannot support
+
+```{r limits}
+l <- data.table(
+  Claim = c("IB1 FL vs RB1 FL, expression, at matched composition",
+            "Difference-in-differences on expression",
+            "Region-unit tests for Tfh, Treg, Macrophage, cDC",
+            "Any statement about pDC",
+            "Treg as a reliable label",
+            "PD-1/PD-L1 axis is not engaged",
+            "Results on the shared `arch` axis are about FL",
+            "FL-edge ring trends, genome-wide",
+            "Anything population-level"),
+  Status = c("**not identifiable**","**withdrawn**","**not possible**","**not possible**",
+             "**unsupported**","**floor result**","**qualified**","**not run**","**never**"),
+  Why = c("2 of 89 bins match; the distributions are disjoint",
+          "the two reference tissues differ, so nothing cancels",
+          "under one cell per 100 um bin; pooled effect sizes only",
+          "the two-stage call does not resolve it on this panel",
+          "rank 2 behind Tfh on its only held-out marker",
+          "~1-2% positivity; absence of evidence, not evidence of absence",
+          "IB1's B_dense carries no FL programme (BCL2/BCL6/MME flat)",
+          "rings ran on the 103-gene panel, not all 6,175",
+          "n = 1 patient; everything here is descriptive"))
+tbl(l, "Limits carried out of this step. The first two were intended as primary results.")
+```
+
+# Appendix
+
+```{r appendix}
+tbl(rdt("output/16_regions/%s/thresholds.csv"), "Every threshold used, at the primary tier.")
+tbl(rdt("output/16_regions/%s/arch_coherence.csv"), "Spatial coherence of the B_dense call.")
+if (length(MISSING)) tbl(data.table(missing = sort(unique(MISSING))),
+  "Files this render could not read. Every block above degrades independently, so a missing file removes one table, not the report.") else
+  cat("Nothing missing: every intermediate this report depends on was present at render time.\n")
+```
+
+<details>
+<summary>Scripts, in dependency order</summary>
+```
+16_script_cell_meta.R          -> output/16_regions/cells_meta_all.csv.gz
+16_script_panel_counts.R       -> output/16_regions/panel_counts_all.Rds
+lib/lineage.R                     assign_lineage, lifted verbatim from step 01
+16_script_regions.R            -> output/16_regions/<tier>/
+16_script_celltypes.R          -> output/16_celltypes/
+16_script_pseudobulk.R         -> output/16_pseudobulk/<tier>/
+16_script_celltype_pseudobulk.R-> output/16_ct_pseudobulk/<tier>/
+16_script_matched_regions.R    -> output/16_matched/<tier>/
+16_script_de.R                 -> output/16_de/<tier>/
+16_script_celltype_de.R        -> output/16_ct_de/<tier>/
+16_script_composition.R        -> output/16_composition/<tier>/
+16_script_field_gradient.R     -> output/16_gradient/<tier>/
+16_script_cooccurrence.R       -> output/16_cooccur/<tier>/
+16_script_fl_edge_rings.R      -> output/16_rings/<tier>/
+16_script_checkpoint.R         -> output/16_checkpoint/<tier>/
+16_script_tfh_heatmaps.R       -> output/16_tfh/<tier>/
+16_script_tfh_views.R          -> output/16_tfh_views/<tier>/
+sbatch/qc_16_negprobe_floor.R  -> output/16_checkpoint/negprobe_verdict.csv, depth_auc.csv
+sbatch/qc_16_batf3_spillover.R -> output/16_checkpoint/batf3_spillover.csv
+```
+</details>

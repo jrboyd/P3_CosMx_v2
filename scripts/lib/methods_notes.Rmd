@@ -1,0 +1,252 @@
+<!-- ===================================================================================
+  Shared methods notes, included into every summary report with knitr `child=`.
+
+  WHY A CHILD AND NOT A SEPARATE DOCUMENT: the reports are handed to collaborators who
+  will not have the repo, so each rendered HTML must be readable on its own. A child is
+  compiled in, so every report carries the full text inline while there is still one
+  source of truth to correct. Do not convert this to a link.
+
+  Audience: an immunologist or haematopathologist reading the results. Assumes the
+  biology, explains the measurement and the statistics.
+==================================================================================== -->
+
+Every number in this report is one of about a dozen kinds. This section defines each
+one once, says what it assumes, and says how it fails. It is written to be skimmed on
+first read and returned to when a specific figure is in question.
+
+## Two units of measurement, and why both appear
+
+**cp10k — counts per 10,000.** A transcript count divided by the total counts in the
+same object, times 10,000. It removes differences in sequencing depth, which on this
+platform vary by more than tenfold between cells and between fields of view.
+
+<div class="verdict-no">
+**`cp10k` means two different things in this project and they are not comparable.**
+Step 11 and every bin- or region-level table use the *pooled* share: all counts in the
+region are summed, then divided by the region's summed total. Step 10's per-gene tables
+use the *mean of per-cell* shares. The pooled version weights a region's deep cells more
+heavily; the per-cell mean weights every cell equally and is dominated by shallow cells.
+A pooled value and a per-cell-mean value for the same gene in the same tissue can differ
+by severalfold. This report states which is in use at each table.
+</div>
+
+**The compositional trap.** cp10k is a *share* of a fixed total, so shares must sum to
+one. If a handful of genes rise steeply in a region, every other gene's share falls
+even when its absolute transcription is unchanged. The effect is largest for genes that
+are already abundant, because they have the most share to lose. This is not a subtle
+correction: in this data it manufactures apparent *depression* of top-abundance genes in
+exactly the regions where the disease programme is most active. Any single-gene cp10k
+change, in either direction, has this as a live alternative explanation.
+
+**Detection rate** — the fraction of cells in a region with at least one count of the
+gene — is the second unit, used because it is not compositional. A cell either has the
+transcript or it does not, and one gene rising does not lower another gene's detection.
+Its weakness is the mirror image: detection saturates. Once a gene is found in most
+cells, a real increase in transcription cannot show up as an increase in detection.
+
+**The concordance gate.** Because each unit fails where the other is sound, no
+single-gene result in this project is reported on one of them alone. A gene is called
+differential only if the cp10k change and the detection-rate change point the *same
+way*, and the detection-rate change is itself non-trivial:
+
+> `sign(log2FC_cp10k) == sign(log2FC_detection)`  **and**  `|log2FC_detection| > 0.3`
+
+The 0.3 threshold is about a 23% relative change in the fraction of cells positive.
+Genes that pass significance on cp10k but fail concordance are retained in the output
+tables, flagged, and not discussed as findings — they are the population most likely to
+be compositional artifact. This gate is deliberately conservative and will discard some
+true positives, particularly for abundant genes near detection saturation.
+
+## Calling a single cell positive for a sparse gene
+
+Several genes central to this report — *PDCD1*, *CD274*, *PDCD1LG2* — are detected in
+only a few percent of cells. At that level the threshold for "positive" is not a
+formality; it decides the answer.
+
+The panel carries **negative-control probes** with no biological target. Their count
+distribution is the platform's false-positive floor, measured on the same cells in the
+same run. Calibrating against it (`negprobe_verdict.csv`):
+
+- at **≥ 1 count**, *CD274* is 2.7× the mean blank probe and *PDCD1* 2.9× — near enough
+  to the floor that a substantial share of "positive" cells are noise;
+- at **≥ 2 counts**, the blank rate collapses to 0.05% and the same genes sit 25–31×
+  above it. Every panel gene tested clears 10× specificity at this threshold.
+
+**≥ 2 counts is therefore the per-cell positivity definition throughout.** The cost is
+sensitivity: roughly 1–2% of cells are positive for the checkpoint genes, a few thousand
+per sample. Consequences that follow from this and are stated wherever they bite: a null
+per-cell result is a **floor result**, not evidence of absence; and the positive cells
+are, by construction, enriched for deep cells.
+
+<div class="verdict-mid">
+**Sequencing depth predicts positivity for every sparse gene, including certainties.**
+Depth discriminates positive from negative cells at AUC 0.64–0.76 for *every* gene
+tested — including *IGKC* (0.693 / 0.733), *CD3E* (0.695 / 0.649) and *CD68* (0.731 /
+0.671), which are unambiguously present. *PDCD1* (0.711) and *CD274* (0.699) are
+indistinguishable from those. An AUC near 0.70 against depth is therefore a property of
+any sparse count call on this platform and **not** a signature of a spurious gene. What
+follows is not that the calls are unreliable but that **depth must be controlled in every
+per-cell positivity comparison** — which is done here by stratification, below.
+</div>
+
+## The unit of a p-value
+
+This is the single most consequential methodological choice in the project.
+
+A field of view holds thousands of cells that share a section, a staining reaction, a
+depth profile and a local tissue architecture. They are not independent observations of
+the disease. Treating 400,000 cells as 400,000 samples produces p-values below 10<sup>-300</sup>
+for effects that do not reproduce, because the test is measuring the certainty of a
+*local* mean, not whether the biology differs. Step 11 lost a Tfh result to exactly this
+error and it is the reason for the rule.
+
+**In this project, the unit of every p-value is a spatial region — a 100 µm bin, a
+neighbourhood, or a field of view — never a cell.** Counts are summed within each region
+first (a *pseudobulk*), the region becomes one observation, and the test is run across
+regions. Sample sizes in these tables are therefore in the tens to hundreds, and the
+p-values are correspondingly modest. That is the honest scale of the evidence at n = 1.
+
+**FOV collapse as a second, stricter reading.** Bins within one field of view still share
+that field's technical batch. Where a result matters it is recomputed with the field of
+view as the unit — a coarser and more conservative test, with fewer observations. Results
+described as "surviving FOV collapse" passed both. Results significant at bin level but
+not at FOV level are reported as bin-level only and are the weaker class of evidence.
+
+## The tests
+
+**Mann–Whitney U** (Wilcoxon rank-sum) compares two groups of regions on one gene. It
+asks whether a randomly chosen region from group A tends to rank above one from group B.
+It is used because it assumes nothing about the shape of the distribution — region-level
+cp10k values are skewed and heavy-tailed, and a t-test's normality assumption is not met.
+What it does assume is that the regions within a group are exchangeable, which is what
+the unit rule above is protecting. It reports a shift in ranks, so a significant result
+means "systematically higher", not "higher by X".
+
+**Fold changes are reported alongside every p-value and are the quantity to read for
+magnitude.** A Mann–Whitney p-value carries no effect size at all; a gene can be highly
+significant on a small, uninteresting shift if the regions are consistent.
+
+**Benjamini–Hochberg FDR (`q`).** Testing ~6,000 genes at p < 0.05 yields ~300 false
+positives by construction. BH rescales p-values so that `q < 0.05` means *of the genes
+called significant, about 5% are expected to be false* — a statement about the called set,
+not about any single gene. It is applied within each contrast separately, so q-values are
+not comparable across contrasts. BH assumes tests are independent or positively
+correlated; co-expressed genes satisfy the latter well enough for the guarantee to hold
+approximately, and it is the standard choice in this setting.
+
+**Permutation nulls.** Where the question is spatial — is this set of bins clustered
+rather than scattered, are these two cell types adjacent more often than expected — there
+is no closed-form null. Instead labels are shuffled many times *within matched strata*
+(density deciles, lineage) and the observed statistic is compared to the resulting
+distribution. Shuffling within strata is the essential detail: an unstratified shuffle
+would test the trivial hypothesis that cells are non-uniformly distributed in tissue,
+which they obviously are, and would return significance for everything. The p-value is
+the share of permutations at least as extreme as the observation, so its resolution is
+bounded by the number of permutations — a reported *p* = 0.001 on 1,000 permutations means
+"nothing this extreme occurred", not a precise value.
+
+**Cluster bootstrap.** Confidence intervals on per-cell models are obtained by resampling
+*fields of view with replacement*, refitting, and taking the 2.5th and 97.5th percentiles
+of the resulting estimates. Resampling FOVs rather than cells is what propagates the
+within-field correlation into the interval. A bootstrap that resampled cells (or bins)
+would produce intervals far too narrow — this happened in an earlier version of the
+cross-sample analysis, where a bin-resampling bootstrap drove ~900 genes to the p-value
+floor simultaneously, which was the signal that the resampling unit was wrong.
+
+**Mixed model as a cross-check, not as the primary fit.** Where a per-cell model matters,
+the cluster-bootstrap estimate is refitted as a generalised linear mixed model with a
+**random intercept per field of view** (`lme4::glmer`), which handles the same within-field
+correlation by a different mechanism: the bootstrap makes no assumption about how fields
+differ, while the mixed model assumes their intercepts are drawn from a normal distribution
+and shrinks small fields toward the overall mean. Because the two rest on different
+assumptions, agreement between them is informative and disagreement localises the problem.
+Where they part company it is in the expected direction -- the contrast with the fewest
+fields of view is the one the mixed model shrinks most. The bootstrap is reported as the
+primary estimate because its assumptions are the weaker of the two.
+
+**Spearman's ρ** is used for the gradient analyses (expression against a continuous field
+level or a distance). It correlates *ranks*, so it detects any monotone relationship and
+is not distorted by the long right tail of chemokine values. It will not detect a
+non-monotone one — a signal that rises then falls with distance appears as ρ ≈ 0.
+
+## Controlling depth and composition
+
+**Depth-decile stratification.** In the per-cell binomial models, cells are cut into
+deciles of total counts and the decile is entered as a covariate. The comparison is then
+made *within* depth strata and pooled, so a region cannot appear positive merely because
+its cells were sequenced more deeply. A necessary precondition is checked and reported
+first: if the two regions' depth distributions do not overlap across enough deciles, the
+region effect and the depth effect are not separately identifiable and no estimate is
+issued for that contrast rather than a misleading one.
+
+**Odds ratios.** The per-cell models are binomial (logistic) regressions of positivity,
+so their effect size is an odds ratio: OR = 2 means the odds of a cell being positive are
+doubled in the first region relative to the second, holding depth stratum constant. For
+outcomes as rare as these (1–3%) an odds ratio is close to a risk ratio, so "roughly
+twice as likely to be positive" is a fair reading. Intervals are the FOV cluster
+bootstrap above. An interval that includes 1 is not evidence of no effect — with a few
+hundred positive cells the intervals are wide, and the width is the result.
+
+**Composition standardisation and matching.** Two regions with the same cell types in
+different proportions will differ on almost every gene for that reason alone. Two devices
+address it. Where possible the comparison is made **within a cell type**, which cannot be
+moved by how many cells of that type are present. Where a region-level comparison is
+needed, regions are **matched** on cell count, median depth, median area and B-cell share,
+and the achieved balance is reported as a **standardised mean difference** — the group
+difference in units of pooled SD. Below 0.1 is conventionally good balance; the
+pre-matching values in this project reach 4.6–6.1, which is itself the central
+negative finding of the cross-sample comparison rather than a nuisance to be fixed.
+
+## Module scores, and the ceiling on them
+
+Single genes at 1–3% detection are near-unusable per cell. Summing several genes that
+mark the same biology raises detection: if each gene is detected independently with
+probability *p*, the chance that at least one of *k* is detected is `1 - (1-p)^k`. At
+*p* ≈ 0.05, five genes give ~23% and fifteen give ~54%. **The number of genes therefore
+sets a hard ceiling on what a module can recover**, and modules built from few genes
+cannot be rescued by any amount of statistics. Where a module remains under-detected this
+is stated as a bound, with the arithmetic.
+
+Two cautions applied throughout. A module is only as specific as its worst gene: an
+IFN-γ-response module initially built here was dominated by *B2M*, *CD74* and *HLA-DRA*,
+which report constitutive MHC expression rather than interferon signalling, and removing
+them cut the effect from +0.623 to +0.219. And a module scored on the cells that defined
+it is circular — so every module result is reported twice, with and without the defining
+genes and cells, and **only the second is treated as evidence**.
+
+## Power bounds
+
+Where a comparison returns nothing, the report gives a **power bound**: the smallest
+effect that would have been detected at 80% power given the observed positivity rate and
+number of regions. This converts an uninformative "not significant" into a bounded
+statement — *an effect larger than this would probably have been seen; anything smaller
+would not have been*. Read it as the resolution limit of the measurement. A null result
+with a bound of 2× is meaningful; a null with a bound of 10× says almost nothing.
+
+## Difference-in-differences, and what it assumes
+
+To ask whether FL behaves differently *next to a Hodgkin field*, the natural construction
+is to take each sample's internal contrast (disease region versus its own reference) and
+subtract one from the other. A technical offset affecting one whole sample cancels.
+
+**It cancels only if the offset is the same in the reference region as in the disease
+region** — that is, no sample × region interaction other than the biology of interest.
+That assumption is not testable with one patient. Where it is checkable it is checked: if
+the two samples' *reference* regions do not differ on the gene in question, the offset is
+bounded and the subtraction is credible; if they differ substantially, the raw
+cross-sample number is uninterpretable and the subtraction is the only honest version of
+it, but is itself resting on the assumption. This report therefore presents
+difference-in-differences as a **deflation analysis** — how much of an apparent
+cross-sample effect survives removal of the reference offset — and never as a primary
+result. An earlier bin-level version of this construction was **withdrawn** for violating
+the assumption outright, and that is documented rather than quietly dropped.
+
+## What n = 1 permits
+
+One patient, two sections. Every result here is **descriptive of this case**. Confidence
+intervals and q-values quantify sampling variability *across regions of this tissue*;
+they say nothing about how often the finding would recur in other patients, and no
+statistical procedure applied to one patient can. Statements are written as "in this
+node", not "in follicular lymphoma". The two samples are the same clone from the same
+person, which is what makes the internal comparison unusually clean and simultaneously
+makes generalisation impossible.

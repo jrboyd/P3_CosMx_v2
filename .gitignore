@@ -1,0 +1,10 @@
+.*jobs
+.*job
+logs
+figures
+output
+input
+*.Rproj
+.Rproj.user
+tmp.png
+.Rhistory

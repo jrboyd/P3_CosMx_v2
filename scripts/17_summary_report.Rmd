@@ -1,0 +1,806 @@
+---
+title: "PD-1, PD-L1 and PD-L2 in the composite node"
+subtitle: "CosMx 6K, P3_CosMx_v2 — step 17. Exhausting the checkpoint question, including what it rules out."
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    toc_depth: 3
+    number_sections: true
+    code_folding: hide
+    theme: flatly
+    self_contained: true
+    mathjax: null
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE,
+                      fig.align = "center", dpi = 110)
+knitr::opts_knit$set(root.dir = "/gpfs1/pi/avolaric/files_jrboyd/P3_CosMx_v2")
+suppressPackageStartupMessages({library(data.table); library(ggplot2); library(knitr)})
+setDTthreads(1)
+
+ROOT <- "/gpfs1/pi/avolaric/files_jrboyd/P3_CosMx_v2"
+TIER <- "matched"
+MISSING <- character()
+rd <- function(p, ...) {
+  f <- file.path(ROOT, p)
+  if (!file.exists(f)) { MISSING <<- c(MISSING, p); return(NULL) }
+  tryCatch(fread(f, ...), error = function(e) { MISSING <<- c(MISSING, p); NULL })
+}
+rdt <- function(fmt, ...) rd(sprintf(fmt, TIER), ...)
+img <- function(p) {
+  f <- file.path(ROOT, p)
+  if (!file.exists(f)) { MISSING <<- c(MISSING, p); return(invisible(NULL)) }
+  knitr::include_graphics(f, rel_path = FALSE)
+}
+imgt <- function(fmt) img(sprintf(fmt, TIER))
+tbl <- function(d, cap = NULL, digits = 3) {
+  if (is.null(d) || !nrow(d)) return(invisible(NULL))
+  kable(d, caption = cap, digits = digits, format = "html",
+        table.attr = 'class="table table-sm table-striped"')
+}
+SURF<-"#fcfcfb"; INK<-"#0b0b0b"; INK2<-"#52514e"; MUTED<-"#898781"; GRID<-"#e1e0d9"
+BLUE<-"#2a78d6"; ORANGE<-"#eb6834"; AQUA<-"#1baf7a"
+SAMP_COLS <- c(IB1 = BLUE, RB1 = ORANGE)
+th <- theme_minimal(base_size = 11) +
+  theme(plot.background=element_rect(fill=SURF,colour=NA),
+        panel.background=element_rect(fill=SURF,colour=NA),
+        panel.grid.minor=element_blank(),
+        panel.grid.major=element_line(colour=GRID,linewidth=.25),
+        plot.title=element_text(colour=INK,face="bold"),
+        plot.subtitle=element_text(colour=INK2,size=9),
+        plot.caption=element_text(colour=MUTED,size=8,hjust=0),
+        legend.position="top", legend.justification="left")
+
+MOD  <- rdt("output/17_pd1/%s/module_detection.csv")
+MC   <- rdt("output/17_pd1/%s/module_contrasts.csv")
+MUA  <- rdt("output/17_pd1/%s/module_unit_agreement.csv")
+PB   <- rdt("output/17_pd1/%s/power_bounds.csv")
+SG   <- rdt("output/17_pd1/%s/sign_consistency.csv")
+SGG  <- rdt("output/17_pd1/%s/sign_consistency_global.csv")
+SOC  <- rdt("output/17_pd1/%s/sign_offset_check.csv")
+BIN  <- rdt("output/17_pd1/%s/binomial_model.csv")
+GLM  <- rdt("output/17_pd1/%s/binomial_glmer_check.csv")
+DID  <- rdt("output/17_pd1/%s/did_within_celltype.csv")
+TXA  <- rdt("output/17_pd1/%s/tx_abundance.csv")
+FEP  <- rdt("output/17_pd1/%s/field_extent_profile.csv")
+FEV  <- rdt("output/17_pd1/%s/field_extent_verdict.csv")
+FEG  <- rdt("output/17_pd1/%s/field_extent_gradient.csv")
+FEC  <- rdt("output/17_pd1/%s/field_extent_coherence.csv")
+CHO  <- rdt("output/17_pd1/%s/chemo_offset_check.csv")
+```
+
+```{css, echo=FALSE}
+.table { font-size: 0.86em; }
+details { background:#f6f5f1; border-left:3px solid #c3c2b7; padding:.6em 1em; margin:1em 0; }
+summary { cursor:pointer; font-weight:600; color:#52514e; }
+.verdict-ok  { border-left:4px solid #1baf7a; padding:.5em 1em; background:#f2faf6; margin:1em 0; }
+.verdict-no  { border-left:4px solid #eb6834; padding:.5em 1em; background:#fdf4ef; margin:1em 0; }
+.verdict-mid { border-left:4px solid #2a78d6; padding:.5em 1em; background:#f1f6fc; margin:1em 0; }
+```
+
+# The question, and the one-paragraph answer
+
+Step 16 reported a clean negative on *PDCD1*, *CD274* and *PDCD1LG2*: no difference between
+any pair of regions within any cell type, all *q* ≥ 0.11. Because these are the two
+therapeutically actionable genes on the panel, that negative needed to be either overturned
+or established as a floor rather than left as an untested absence. **Step 17 exists to
+exhaust the question** — by measuring the axis indirectly through modules, by moving to
+per-cell models that use the data more efficiently than region-level rank tests, by going
+below the cell to raw transcript positions, and by asking whether apparent cross-sample
+differences survive removal of the between-slide offset.
+
+<div class="verdict-mid">
+**The answer has two halves, and they point in opposite directions.**
+
+**Within each node, the checkpoint axis is measurable and it behaves as the textbook
+predicts.** In IB1, the Hodgkin chemokine hotspots carry an elevated PD-1 axis module
+(+0.472 log₂, *q* = 2.1 × 10⁻⁵) and an elevated 9p24.1 module (+0.391, *q* = 2.6 × 10⁻⁵)
+against IB1's own background; per cell, the ligands rise — *CD274* OR 1.74 and *PDCD1LG2* OR
+1.81 — while *PDCD1* itself does not (OR 1.29, *q* = 0.14). **Ligand-side without
+receptor-side**, which is the signature of tumour-intrinsic ligand expression rather than
+T-cell exhaustion. In RB1, *PDCD1* in T cells is 1.82× more likely to be positive inside
+follicles than outside (*q* = 4.6 × 10⁻¹⁴) — the recognised follicular PD-1 pattern of FL,
+recovered here without being looked for.
+
+**Between the nodes, the large differences are the slides — but the null is not clean, and
+one gene is left standing.** Zero of thirty gene × stratum combinations survive a
+within-cell-type difference-in-differences. For the biggest apparent effects that is a
+genuine retraction: *CXCL13*'s cross-sample odds ratio of 5.21 deflates to 0.98 and *LAG3*'s
+4.64 to 1.45, because the two samples' *reference* zones differ by almost exactly as much
+(5.33 and 3.20). But the difference-in-differences is a weak test by construction — its
+variance is the sum of two bootstrap variances, giving a median detectable effect of
+**1.8–2.5 fold** — so "did not survive" covers two very different situations, and this report
+separates them. ***CD274* is the exception**: its reference contrast is null (OR 1.11, not
+significant), so there is no offset to remove, and the difference-in-differences retains
+OR **1.70** in T cells (*p* = 0.075) and **1.60** in myeloid cells (*p* = 0.047) — two
+independent strata, same direction. That is 1 nominal hit in 30 tests against 1.5 expected by
+chance, and nothing survives correction, so it is a coherent pattern rather than a result. PD-L1 higher in
+IB1's FL than in RB1's FL is **unresolved, not refuted**, and is the one cross-sample
+candidate worth more sections.
+
+**The sign-consistency result reported earlier in this step is retracted**, on grounds
+internal to the test rather than any appeal to the slides. It asked whether a gene points the
+same way across all five T compartments against a null of *p* = 2 × 0.5⁵ = 0.0625, which
+treats the compartments as five independent observations. They are not: the intraclass
+correlation is **0.875**, giving **1.11** effective observations per gene, and all 14
+"consistent" genes have a compartment mean exceeding their compartment spread — so agreement
+follows arithmetically from the mean being non-zero. Under the defensible null the same
+14 of 22 gives ***p* = 0.143**, not significant.
+</div>
+
+So: the FL environment's checkpoint biology in IB1 cannot be *distinguished* from RB1's with
+this data, for two separate reasons that should not be conflated. For the exhaustion and
+chemokine genes the two slides differ by more than the regions within them do, and those
+comparisons are foreclosed. For *CD274* specifically the slides do **not** differ and the
+comparison is merely underpowered — a different problem, with a different remedy. What can be
+said without qualification is confined to within-sample comparisons, where it is strong.
+
+# How to read these numbers
+
+<div class="verdict-mid">
+**Companion glossary.** A standalone reference for the immunology and the statistics used
+across this project — terms tagged as either field-standard or specific to this analysis —
+is at `output/17_summary/composite_node_lexicon.html`. It covers the PD-1 axis, the cell
+states and modules, the two diseases, and a section each on the metrics and the statistical
+tests. This report's methods section above is self-contained; the lexicon is broader and
+covers steps 07-17.
+</div>
+
+```{r methods-child, child="scripts/lib/methods_notes.Rmd"}
+```
+
+# The biology being measured
+
+A short orientation, since several of the readouts below are indirect. This section states
+only what is textbook; everything specific to this case is in the results.
+
+**PD-1 (*PDCD1*)** is an inhibitory receptor induced on T cells by activation. Sustained
+expression, with *LAG3*, *TIGIT*, *HAVCR2* (TIM-3), *CTLA4* and the transcription factor
+*TOX*, marks the exhausted state — reduced cytokine output and proliferative capacity.
+*TOX* is the commitment factor for that programme, and *TCF7*/*IL7R*/*SELL* mark the
+progenitor-like pole opposite it.
+
+**PD-1 is also constitutive on T follicular helper cells**, where it is a normal
+differentiation marker rather than a sign of dysfunction. This is the central interpretive
+difficulty of the report: in a lymph node, a PD-1 signal in a follicle may be Tfh identity,
+exhaustion, or both, and the transcript alone does not distinguish them. In follicular
+lymphoma the *distribution* of PD-1⁺ cells is diagnostically used — a follicular pattern
+versus a diffuse interfollicular one — which is why the spatial readout matters more here
+than the level.
+
+**PD-L1 (*CD274*)** and **PD-L2 (*PDCD1LG2*)** are the ligands. Their genes sit adjacent on
+chromosome **9p24.1**, next to *JAK2*. Copy gain of that locus raises all three together,
+and the extra JAK2 amplifies JAK–STAT signalling, which drives further *CD274*
+transcription — a self-reinforcing loop. **9p24.1 gain is a defining lesion of classic
+Hodgkin lymphoma**, present in the great majority of cases, and is why cHL is exceptionally
+responsive to PD-1 blockade. The 9p24.1 module used below (*CD274* + *PDCD1LG2* + *JAK2*)
+is a transcriptional shadow of a copy-number event and is labelled EXPLORATORY throughout:
+RNA cannot establish amplification.
+
+**PD-L1 is also induced by IFN-γ**, via STAT1 and IRF1, as a physiological brake on
+inflammation. This is *adaptive immune resistance*: the tumour's ligand expression is
+partly a response to the T cells attacking it. The consequence for interpretation is that
+PD-L1 and an IFN-γ signature rising together is the expected coupled pattern, and PD-L1
+rising *without* it points instead at a tumour-intrinsic cause such as 9p24.1 gain. The
+*CXCL9*/*CXCL10* chemokines are the more specific IFN-γ readout, because the abundant MHC
+genes (*B2M*, *CD74*, *HLA-DRA*) report constitutive antigen presentation rather than
+interferon signalling — a distinction that materially changed the numbers here.
+
+**Clinically**, PD-L1 immunohistochemistry is a companion diagnostic in several solid
+tumours; in cHL the 9p24.1 lesion rather than IHC underlies the response to nivolumab and
+pembrolizumab, both approved in relapsed/refractory disease. In follicular lymphoma
+checkpoint blockade has been comparatively disappointing, which is part of what makes a
+composite node — the same patient's FL adjacent to a cHL component — an interesting place
+to ask whether the FL's checkpoint environment is altered.
+
+# What was built
+
+```{r built}
+b <- data.table(
+  Stage = c("17a transcripts", "17b modules", "17c sign consistency",
+            "17d transcript colocalisation", "17e spatial views",
+            "17f per-cell binomial", "17g offset checks"),
+  What = c(
+    "streamed the raw transcript tables (1.27e9 rows) and kept 21 targets",
+    "7 modules scored per cell; detection ceiling, unit agreement, power bounds",
+    "per-gene direction across 5 T compartments against a random-direction null",
+    "transcript abundance per region; proximity null NOT DELIVERED",
+    "paired image + cell type + transcript + count panels for the sign-test genes",
+    "positivity ~ region + depth decile, FOV cluster bootstrap, glmer cross-check",
+    "difference-in-differences and the reference-zone test of the sign result"),
+  Verdict = c("done", "done", "qualified — see §8", "partial — proximity withdrawn",
+              "done", "done", "done — and it retracts §8"))
+tbl(b)
+```
+
+# The measurement floor, which bounds everything else
+
+Nothing below can be read without this section. The three genes of interest are near the
+platform's detection limit, and the size of the gap between what they can and cannot support
+is the main reason step 16's negative was not simply accepted.
+
+```{r modfloor}
+if (!is.null(MOD)) tbl(MOD[order(-pct_det_module),
+  .(module = module, genes = genes,
+    `best single gene (% cells)` = pct_det_best_single,
+    `module (% cells)` = pct_det_module,
+    `module >=3 counts (%)` = pct_module_ge3,
+    `mean counts/cell` = mean_counts)],
+  "Detection achieved by summing genes. `1-(1-p)^k` is the ceiling: gene count sets what is recoverable.")
+```
+
+<div class="verdict-no">
+**Modules rescue the proxies but not the axis.** Summing genes lifts the *exhaustion*
+programme from 10.7% of cells (best single gene) to **56.0%**, and the *IFN-γ* response to
+**73.2%** — both now usable per cell. But the PD-1 axis has only **three** genes on the
+panel, so it reaches **14.1%**, and 9p24.1 likewise **11.9%**. Three genes at ~5% each
+cannot exceed about 14% no matter what is done with them; this is arithmetic, not analysis.
+
+**The consequence for how to read this report.** Anything about the *surrounding* immune
+state — exhaustion, interferon tone, Tfh help, naive/memory balance — is measured with real
+per-cell resolution. Anything about the checkpoint genes *themselves* is measured at the
+floor, at region level, with per-cell positivity defined as ≥ 2 counts and reaching only
+1–3% of cells. A null on the axis is therefore a bounded null, and the bound is given
+alongside it. This asymmetry is not a flaw in the analysis; it is the panel.
+</div>
+
+```{r power}
+if (!is.null(PB)) tbl(PB[order(contrast, module),
+  .(contrast, module, n_a, n_b, `MDE (log2)` = mde_log2, `MDE (fold)` = mde_fold,
+    observed = observed_log2, verdict)],
+  "Power bounds. MDE is the smallest module shift detectable at 80% power given the region-level SD and the number of regions. A null with a small MDE is informative; a null with a large one is not.")
+```
+
+The bounds are tight where the region count is large (RB1's 346-vs-383 contrast resolves
+1.01–1.03 fold) and loose where it is small (IB1's 16 hotspots resolve only 1.07–1.28
+fold). IB1's FL foci occupy 20 FOVs and its hotspots 16, and that — not the genes — is what
+limits the IB1 contrasts.
+
+# Modules: what rises where
+
+Region is the unit; the FOV × region cell is the primary unit and the 100 µm bin the
+secondary. Both cp10k and detection rate are reported and the concordance gate applied, so a
+module flagged `DISCORDANT` is one where the two units disagree in direction and is not
+interpreted.
+
+```{r modcon}
+if (!is.null(MC)) {
+  z <- MC[unit == "FOVxregion" & contrast %in% c("IB1 FL vs IB1 bg", "IB1 hot vs IB1 bg",
+                                                 "RB1 foll vs RB1 inter")]
+  tbl(z[order(contrast, -log2fc),
+        .(contrast, module, n_a, n_b, `log2FC cp10k` = log2fc, `log2FC det` = log2fc_det,
+          q = signif(q, 2), `q det` = signif(q_det, 2), verdict)],
+      "Within-sample module contrasts, FOV x region as the unit. These are the interpretable ones.")
+}
+```
+
+<div class="verdict-ok">
+**The two positive within-sample results.**
+
+**IB1's Hodgkin hotspots carry the checkpoint axis.** PD-1 axis **+0.472** log₂
+(*q* = 2.1 × 10⁻⁵) and 9p24.1 **+0.391** (*q* = 2.6 × 10⁻⁵) against IB1's own background,
+both concordant on cp10k and detection. Notably the IFN-γ module does **not** rise
+(−0.114, not significant) and antigen presentation is flat (+0.038, ns). **PD-L1/PD-L2 up
+without an interferon signature** is the pattern expected from 9p24.1 copy gain rather than
+adaptive immune resistance — the tumour-intrinsic mechanism, in the disease where that
+lesion is definitional. Given n = 1 and an RNA-only readout this is a consistency, not a
+demonstration.
+
+**IB1's FL foci do not.** PD-1 axis −0.008 (ns) and 9p24.1 −0.042 (ns) against the same
+background, with an MDE of 1.14-fold — so an effect of the hotspot's size would have been
+seen. What the FL foci do carry is *Tfh help* **+0.649**, *T naive/memory* **+0.358**,
+antigen presentation **+0.533** and IFN-γ **+0.219**, all concordant. The FL focus is a
+follicle-like helper environment; it is not a checkpoint-high environment.
+</div>
+
+```{r modunit}
+if (!is.null(MUA)) tbl(MUA[order(contrast, module),
+  .(contrast, module, `log2FC (FOV)` = lf_fov, `q (FOV)` = signif(q_fov, 2),
+    `log2FC (bin)` = lf_bin, `q (bin)` = signif(q_bin, 2), agree)],
+  "Unit agreement. `agree = FALSE` means the FOV-level and bin-level readings differ in significance or direction; those rows are reported as unresolved.")
+```
+
+The IB1 FL contrast is the one where the two units disagree most (5 of 7 modules), which is
+expected at 20 FOVs: collapsing to the FOV removes most of the observations. The IB1-hotspot
+PD-1 and 9p24.1 results, and the whole RB1 contrast, agree across units.
+
+# Per cell: the binomial model
+
+The region-level rank tests of step 16 discard information — each region contributes one
+number regardless of whether it holds 50 cells or 5,000. A per-cell model recovers that,
+provided depth is controlled and the within-FOV correlation is propagated into the interval.
+Positivity (≥ 2 counts) is modelled as a binomial GLM with region and **depth decile** as
+covariates; confidence intervals come from **resampling fields of view** with replacement.
+
+**Identifiability is checked before anything is estimated.** All contrasts had all 10 depth
+deciles overlapping between groups, so the region effect and the depth effect are separately
+estimable everywhere and no contrast was refused.
+
+```{r binpd1}
+if (!is.null(BIN)) {
+  z <- BIN[gene %in% c("PDCD1","CD274","PDCD1LG2") & !is.na(or) &
+           contrast %in% c("cHL_hotspot vs background", "FL_focus vs background",
+                           "FL_follicular vs interfollicular")]
+  tbl(z[order(contrast, gene, stratum),
+        .(contrast, stratum, gene, `positive cells` = n_pos, OR = round(or, 3),
+          `95% CI` = sprintf("[%.2f, %.2f]", lo, hi), q = signif(q, 2))],
+      "The checkpoint genes per cell, WITHIN-SAMPLE contrasts only. Test: binomial GLM of positivity (>= 2 counts) on region with depth decile as a stratum; CIs and q from a bootstrap that resamples FOVs, so the FOV is the replicate. `all` pools cell types and can therefore be moved by composition; the within-type strata cannot.")
+}
+```
+
+<div class="verdict-ok">
+**IB1 hotspot, ligand side only.** Pooled across cell types, *CD274* OR **1.74**
+(*q* = 3.5 × 10⁻⁴) and *PDCD1LG2* OR **1.81** (*q* = 2.0 × 10⁻⁸); *PDCD1* OR 1.29,
+*q* = 0.14. Within cell type the composition-free versions hold but weaken as expected:
+*CD274* in myeloid cells OR **1.93** (*q* = 0.050) — the cell type that carries PD-L1 in
+cHL — and *PDCD1LG2* in B cells OR **3.13** (*q* = 0.043), though on 433 positive cells with
+a wide interval. This reproduces the module result by an independent route.
+
+**RB1, receptor side only, and in the right cells.** *PDCD1* in **T cells**, follicular
+versus interfollicular, OR **1.82** (*q* = 4.6 × 10⁻¹⁴) on 982 positive cells, accompanied
+by *CTLA4* 1.67, *CXCL13* 1.67, *TOX* 1.44 and *TIGIT* 1.38 — a coherent follicular
+helper/inhibitory-receptor programme. Meanwhile *CD274* falls in follicles (0.77 pooled,
+0.86 in B cells). This is the follicular PD-1 pattern of FL, and it was not sought: the
+cell-type caller deliberately excludes *PDCD1* from its Tfh definition, so the result is not
+circular.
+
+**IB1's FL foci show neither.** *PDCD1* in T cells OR 1.24, 95% CI [0.64, 1.74], *q* = 0.63.
+The interval contains RB1's 1.82, so this is **not** a demonstrated difference between the
+two nodes' follicular PD-1 patterns — it is a failure to resolve one, on the 25 FOVs
+that carry an IB1 FL focus against RB1's 377. (9 is the *strict*-tier FOV count and does not
+apply here; every binomial fit is at the matched tier.)
+</div>
+
+```{r glmercheck}
+if (!is.null(GLM)) tbl(GLM[, .(contrast, gene, `OR (FOV bootstrap)` = round(or_boot, 3),
+                               `OR (glmer)` = round(or_glmer, 3),
+                               `q (bootstrap)` = signif(q_boot, 2),
+                               `p (glmer)` = signif(p_glmer, 2), agree)],
+  "Cross-check: the same contrasts refitted as a mixed model with a random intercept per FOV. Two different ways of handling the within-field correlation.")
+```
+
+All ten contrasts agree in sign, and the two estimates are within a few percent except the
+IB1 hotspot *CD274* (1.74 bootstrap versus 1.45 mixed model) — the contrast with fewest
+fields, where the mixed model's partial pooling shrinks the estimate. The cluster bootstrap
+is behaving.
+
+# Sign consistency — and why it does not mean what it appeared to
+
+An earlier analysis in this step asked, per gene, whether IB1 exceeded RB1 in the **same
+direction across all five T compartments** (Tfh, Treg, CD4 conventional, CD8, unresolved),
+against a null of random direction (*p* = 2 × 0.5⁵ = 0.0625 each).
+
+```{r signres}
+if (!is.null(SGG)) tbl(SGG[, .(`genes tested` = genes_tested, consistent,
+                               `expected by chance` = expected,
+                               `binomial p` = signif(binom_p, 3),
+                               `IB1 higher` = ib1_higher, `RB1 higher` = rb1_higher)],
+  "The global sign test as originally computed.")
+if (!is.null(SG)) tbl(SG[!is.na(gene)][order(q_sign, -abs(med_log2)),
+  .(gene, compartments, `n IB1 higher` = n_IB1_higher, direction,
+    `median log2FC` = round(med_log2, 3), q = signif(q_sign, 2))],
+  "Per gene. 14 of 22 consistent against 1.38 expected.")
+```
+
+```{r signfig, fig.cap="Per-compartment cp10k for the sign-test genes. Consistency across compartments is what the test detects."}
+imgt("output/17_pd1/%s/figures/fig_17_sign_consistency.png")
+```
+
+<div class="verdict-no">
+**This result is retracted.** There are two independent reasons; the first is sufficient on
+its own and does not involve the slides at all.
+
+**Reason 1 — the five compartments are one observation, not five.** The null
+*p* = 2 × 0.5⁵ = 0.0625 requires each compartment to be an independent coin flip. Test that
+directly by decomposing each gene's five compartment values into a gene mean plus
+compartment-level scatter:
+</div>
+
+```{r pseudorep}
+PSR <- rdt("output/17_pd1/%s/sign_pseudoreplication.csv")
+if (!is.null(PSR)) tbl(PSR[, .(ICC = icc, `effective obs per gene (of 5)` = n_eff_per_gene,
+    consistent, tested,
+    `p, null = 5 independent` = signif(p_null_5_independent, 3),
+    `p, null = 1 effective` = signif(p_null_1_effective, 3))],
+  "Variance decomposition of the sign test. The ICC is the share of total variance sitting between genes rather than between compartments within a gene.")
+```
+
+The intraclass correlation is **0.875**: seven-eighths of the variance is *between genes*,
+one-eighth between compartments within a gene. The five compartments are therefore
+overwhelmingly reporting the same per-gene number, and the effective sample size is
+**1.11 observations per gene**, not 5. The consequence is visible per gene: **all 14
+"consistent" genes have a compartment mean larger than their compartment standard
+deviation**, so all five signs agreeing is an arithmetic consequence of the mean being
+non-zero, not five independent successes. *LAG3*'s mean is 8.0 standard deviations from zero;
+the probability that five draws around it disagree in sign is not 0.0625, it is
+indistinguishable from zero.
+
+Under the defensible null — the compartments are pseudo-replicates, so the only random
+quantity is the *sign* of each gene's mean, giving *p* = 0.5 per gene — the same 14 of 22
+yields ***p* = 0.143. Not significant.** The reported *p* = 2.7 × 10⁻¹² was an artifact of
+counting one observation five times.
+
+<div class="verdict-no">
+**This is the project's own pseudoreplication rule, broken in a new place.** The rule that
+region is the unit of every p-value exists because step 11 lost a Tfh result to treating
+cells as independent. The same error recurred here with *compartments* substituted for
+cells — a written-down rule is not self-enforcing when the replicate unit changes name.
+</div>
+
+**Reason 2 — even the per-gene direction is mostly the slide.** Independently of the count,
+the direction itself can be checked against tissue that shares no disease-region membership:
+the two samples' **reference** zones (IB1 background versus RB1 interfollicular). If a gene
+points the same way there, its consistency is a between-slide offset.
+
+```{r signoffset}
+if (!is.null(SOC)) tbl(SOC[, .(gene, direction, `median log2FC` = med_log2,
+                               `OR between reference zones` = or_reference_zones,
+                               `95% CI` = ci_ref, `q (reference)` = q_ref,
+                               `reference agrees` = reference_same_direction)],
+  "The reference-zone test. `reference agrees = TRUE` means the between-slide offset alone accounts for the gene's sign consistency.")
+```
+
+**Seven of the nine checkable sign-consistent genes point the same way between the reference
+zones, six at *q* < 0.05 and with large effects** — *CXCL13* OR 5.33, *LAG3* 3.20,
+*CTLA4* 1.88. The concordance count alone is 7/9, *p* = 0.090, which does not reach
+significance at nine genes; it is the *magnitudes* that carry this argument, not the count.
+*CXCL13* is the clearest case: 5.21 between the disease regions and 5.33 between the
+reference regions. Two nearly identical ratios in tissue that shares nothing except the
+slide is what a slide effect looks like. This reason is corroborative; reason 1 is the one
+that decides the retraction.
+
+<div class="verdict-mid">
+**Two genes survive, because the reference zones point the *other* way.**
+
+- ***PDCD1*** — RB1 higher in all five compartments (median −0.294 log₂), while the reference
+  zones lean the opposite direction (OR 1.14 IB1-higher, ns). The offset cannot produce this
+  sign, so RB1's excess of PD-1 is not the slide. It converges with the within-RB1 result:
+  PD-1 in T cells, 1.82× more likely inside follicles.
+- ***CXCL9*** — IB1 higher across compartments (median +0.126) against a reference OR of 0.812
+  (RB1-higher). Direction survives, but the magnitude is small enough that little weight
+  should be placed on it.
+</div>
+
+```{r signviews, fig.cap="Paired spatial views for the sign-test contrasts: assembled image with locator, full cell-type breakdown, transcript positions, and count/composition barplots. Only views away from FOV boundaries are shown."}
+imgt("output/17_pd1/%s/sign_views/fig_17_signview_FL_focus_vs_FL_follicular_1.png")
+imgt("output/17_pd1/%s/sign_views/fig_17_signview_background_vs_interfollicular_1.png")
+```
+
+The image panels are shown because the cross-sample count barplots are the honest way to see
+these contrasts — two clouds of a few hundred points each cannot be compared by eye, and an
+earlier version of these figures asked the reader to do exactly that.
+
+# The cross-sample comparison, after the offset is removed
+
+Combining the two halves above: cross-sample contrasts are large but the *reference* contrast
+is also large, so the difference-in-differences is the only interpretable version. It is
+computed **within cell type**, which removes step 16's fatal objection to the bin-level
+version (that IB1's B-poor reference is myeloid-rich and T-depleted while RB1's is a real
+T-zone). What it still assumes — no sample × region interaction — is untestable at n = 1, so
+it is presented as a deflation analysis.
+
+<div class="verdict-mid">
+**Note on which reference these use.** The table below is computed on the **clean** reference
+(IB1 `background` >800 µm from any hotspot), per the field-extent result in the previous
+section. Numbers shift slightly from the contaminated version and the conclusion does not.
+</div>
+
+```{r did}
+if (!is.null(DID)) tbl(DID[stratum != "all"][order(stratum, q_did),
+  .(stratum, gene, `OR raw` = or_focus_raw, `OR reference` = or_reference,
+    `OR DiD` = or_did, `95% CI` = ci_did, `q DiD` = q_did,
+    `% deflated` = deflated_pct)],
+  "IB1 FL vs RB1 FL, minus IB1 background vs RB1 interfollicular, within cell type. Test: difference of two bootstrap log-odds, so its variance is the SUM of two variances -- the weakest test in the project, which is why the MDE column travels with it. `% deflated` is the share of the raw log-odds removed by the subtraction; 100% means the whole apparent difference was the reference offset.")
+```
+
+<div class="verdict-no">
+**Zero of thirty gene × stratum combinations survive at *q* < 0.05 in any cell type** — but
+that sentence covers two different situations and is misleading if left undivided.
+
+**Where the reference contrast is large, this is a retraction.** *CXCL13* in T cells goes
+from OR 5.21 to **0.98** (101% deflated), *LAG3* from 4.64 to **1.45** (76%), *HAVCR2* from
+1.50 to 1.10 (76%). The reference zones move by as much as the disease regions do, so the
+apparent difference is the slide.
+
+**Where the reference contrast is null, this is a power failure, and the two must not be
+read the same way.** With no offset to remove the DiD reduces to the raw contrast with
+inflated variance, so a null there says only that the test could not resolve it.
+</div>
+
+```{r didpower}
+if (!is.null(DID) && "ref_class" %in% names(DID)) {
+  tbl(DID[stratum != "all", .(genes = .N, `median MDE (fold)` = round(median(mde_fold), 2),
+      `largest OR` = round(max(or_did), 2), `n with p < 0.05` = sum(p_did < .05)),
+      by = .(stratum, ref_class)][order(stratum, ref_class)],
+    "Why each stratum came back null. MDE is the smallest effect detectable at 80% power; the DiD variance is the sum of two bootstrap variances, so it is necessarily the weakest test in this report.")
+  tbl(DID[stratum != "all" & or_did >= 1.5][order(p_did),
+      .(stratum, gene, `OR raw` = or_focus_raw, `OR reference` = or_reference,
+        `OR DiD` = or_did, `95% CI` = ci_did, `p` = p_did,
+        `MDE (fold)` = mde_fold, ref_class)],
+    "Point estimates the DiD could not exclude. Read `MDE (fold)` first: where the true effect could plausibly sit below it, a non-significant result is a power failure and not evidence of no difference. These are unresolved, not refuted.")
+}
+```
+
+<div class="verdict-mid">
+**The one gene left standing is *CD274*, and it is the gene of interest.** Its reference
+contrast is **null** — OR 1.11 in T cells, 1.07 in myeloid, neither significant — so there is
+no between-slide offset for PD-L1 to explain anything away. The difference-in-differences
+retains OR **1.76** in T cells (95% CI [0.99, 3.11], *p* = 0.054) and **1.53** in myeloid
+cells ([0.97, 2.43], *p* = 0.069), against detectable effects of 2.27- and 1.93-fold. Two
+independent cell-type strata, the same direction, both a hair outside nominal significance
+and neither surviving correction across the ten-gene panel.
+
+This is consistent with, and gains plausibility from, the within-IB1 result: PD-L1 is
+elevated in IB1's Hodgkin hotspots (OR 1.74 pooled, 1.93 in myeloid). A node carrying a
+Hodgkin component having globally more PD-L1 than the same patient's pure-FL recurrence is
+the expected pattern. **It is a hypothesis this data supports but cannot establish** —
+reporting it as "nothing survived" would have discarded the most promising cross-sample
+signal in the project.
+
+The pooled `all` stratum does reach significance (*CD274* OR 1.42, *q* = 5.9 × 10⁻⁴), but
+`all` mixes cell types and so remains a composition result rather than a cell-state one.
+</div>
+
+# Below the cell: raw transcript positions
+
+The per-cell analyses inherit segmentation. Streaming the raw transcript tables
+(1,271,920,493 rows for IB1) and keeping 21 targets gives a readout that does not.
+
+```{r txfig, fig.cap="Target transcripts per 10,000 target transcripts, by region and sample."}
+imgt("output/17_pd1/%s/figures/fig_17_tx_abundance.png")
+```
+
+```{r txtab}
+if (!is.null(TXA)) {
+  z <- TXA[target %in% c("PDCD1","CD274","PDCD1LG2","CXCL13","LAG3","BATF3")]
+  tbl(dcast(z, samp + bin_region ~ target, value.var = "per10k"),
+      "Transcript abundance per region, normalised within the 21-target set -- descriptive, no test, because the unit is the transcript and transcripts are not independent observations. Free of segmentation error, but not of the between-slide offset: the same caveat as everywhere else applies.")
+}
+```
+
+Abundance reproduces the region-level picture and is reported for completeness rather than as
+independent evidence: it shares the normalisation and the slide offset with the cell-level
+readouts, so it cannot arbitrate between them.
+
+<div class="verdict-no">
+**Transcript proximity is NOT DELIVERED.** The intended readout — whether *PDCD1*
+transcripts sit closer to *CD274* transcripts than expected, which would say the axis is
+*engaged* rather than merely transcribed — required a null that reproduces the observed
+clustering of transcripts under no interaction. **Three null designs were built and all three
+failed their own positive control**: a centroid-versus-transcript mismatch in the first, loss
+of over-dispersion in the second, and carrier-cell resampling still failing in the third.
+Per the stopping rule fixed before the analysis began, it is withdrawn.
+`tx_proximity.csv` exists on disk and **must not be read as a result**; the reasons are in
+`output/17_pd1/matched/tx_proximity_NOT_DELIVERED.md`. Spatial engagement of the PD-1 axis
+remains unmeasured in this project, not measured-and-null.
+</div>
+
+# Is "IB1 background" a valid reference at all?
+
+Everything above that compares the two samples rests on their **reference** zones — IB1
+`background` against RB1 `interfollicular` — being disease-free tissue whose difference is
+therefore technical. Step 13 says otherwise: it reports the Hodgkin chemokine field as
+**tissue-wide**, with ~27% of IB1 bins clearing RB1's 99th percentile. If that is right, IB1's
+background is not disease-free and this report has been calling biology an offset.
+
+The two readings are separable, because **a diffusible field must decay with distance from its
+source and a slide effect cannot.** Each sample's own top-1% chemokine bins are the peaks, so
+the construction is identical in both and RB1 is a no-Hodgkin control.
+
+```{r chemooffset}
+if (!is.null(CHO)) tbl(CHO[, .(samp, `own q99 cut` = own_q99_cut, `top-1% bins` = n_top_bins,
+    `background cp10k` = bg_cp10k, `top cp10k` = top_cp10k,
+    `fold over own background` = fold_over_own_bg, `95% CI` = ci,
+    `reference FOVs` = n_ref_fov, `reference median cp10k` = ref_median_cp10k)],
+  "First: is there an offset at all? IB1's reference tissue carries 3.56x RB1's CCL17+CCL22 (Mann-Whitney p = 1.4e-64, FOV unit). So the question is real. The last two columns are the offset; the fold column is the offset-free version of hotspot specificity.")
+```
+
+```{r fieldprofile, fig.cap="CCL17+CCL22 against distance from each sample's own top-1% chemokine bins. A field decays; a slide offset is flat."}
+imgt("output/17_pd1/%s/figures/fig_17_field_extent.png")
+if (!is.null(FEP)) tbl(FEP[, .(samp, ring, bins, fovs, `median dist (um)` = med_d_um,
+                               `pooled cp10k` = chemo_cp10k)],
+  "The profile. The 0-100 um ring is excluded from the gradient statistics below: bins touching a peak share its diffusion halo and its segmentation.")
+```
+
+<div class="verdict-ok">
+**The field is real, it is Hodgkin-specific, and most of it is spent by 400–800 µm.** IB1
+falls **2.71×** [1.95, 3.91] from near field (100–400 µm) to far field (>1600 µm); RB1 falls
+only **1.20×** [1.14, 1.26]. The ratio of the two decays is **2.27× [1.62, 3.25]** on a FOV
+cluster bootstrap, excluding 1. The profile does the rest: 75.7 → 47.6 → 29.4 → 12.1 cp10k
+across the first four rings, then flat. **Step 13's tissue-wide field is confirmed, and now
+has a measured extent rather than an adjective.**
+</div>
+
+```{r fieldgrad}
+if (!is.null(FEG)) tbl(FEG[, .(samp, `bins (>=100um)` = n_bins, `rho (bin)` = rho_bin,
+    `p (bin)` = signif(p_bin, 3), FOVs = n_fov, `rho (FOV)` = rho_fov,
+    `p (FOV)` = signif(p_fov, 3))],
+  "The rank correlation, which does NOT separate the samples.")
+```
+
+<div class="verdict-mid">
+**A methodological aside worth carrying.** Spearman's ρ fails here: −0.180 versus −0.095 at
+bin level, and −0.287 versus **−0.280** at FOV level — essentially identical. Both samples
+decline monotonically, because a spatially autocorrelated field always has lower values
+around its own top 1%. **The amplitude of the decay discriminates; its monotonicity does
+not.** Had this analysis been read on ρ alone it would have concluded there is no
+Hodgkin-specific field.
+</div>
+
+<div class="verdict-no">
+**But the field does not explain the whole background elevation, and the residual is
+unresolved.** At >1600 µm from any hotspot IB1 is still **4.07×** RB1, flat in distance.
+Something a diffusible field cannot produce. Two explanations remain and this data cannot
+choose between them: a genuine between-slide offset, or **diffuse HRS cells below the hotspot
+threshold** — which distance-to-peak is blind to by construction, since the peaks are only the
+top 1% of chemokine bins, not all HRS locations.
+
+A far-field spatial-coherence test was built to separate them, on the reasoning that biology
+stays clustered while a slide effect does not. **It is uninformative and is reported as
+such:**
+</div>
+
+```{r fieldcoh}
+if (!is.null(FEC)) tbl(FEC[, .(samp, `far-field bins` = far_bins, `top-quartile bins` = hi_bins,
+    `observed NN (um)` = round(obs_mnn_um, 1), `null NN (um)` = round(null_mnn_um, 1),
+    ratio, `p (permutation)` = signif(p_perm, 3))],
+  "Far-field coherence. Both samples' high-chemokine bins are mildly clustered, and RB1 -- which has no Hodgkin -- is the MORE significant of the two. Clustering here is generic, so the test cannot attribute the residual.")
+```
+
+The effects are small in both (9% and 6% closer than chance) and the no-Hodgkin control is the
+more significant, so clustering in the far field carries no information about Hodgkin. The
+residual 4.07× stays unattributed.
+
+<div class="verdict-mid">
+**What this changes for the results above.** 40% of IB1's `background` — 2,360 of 5,898
+non-peak bins — sits within 800 µm of a hotspot and carries field signal. Every contrast in
+this report that used `background` as its reference therefore used a partly contaminated
+reference, including the difference-in-differences. **That biases those tests toward the
+null**, because part of what is being subtracted is the signal of interest. So the 0-of-30
+result is conservative rather than generous, and *CD274*'s 1.76 is more likely understated
+than overstated.
+
+The fix is cheap: a clean reference is `background` restricted to **>800 µm from any
+hotspot**, retaining **3,538 bins (60%)**. **This has been run** — the per-cell binomial model
+was refitted under both reference definitions side by side (IB1 background 501,094 → 292,288
+cells, a 42% cut matching the 40% bin estimate), and the results are below.
+</div>
+
+```{r refdefcmp}
+if (!is.null(BIN) && "refdef" %in% names(BIN)) {
+  z <- BIN[gene %in% c("PDCD1","CD274","PDCD1LG2") &
+           contrast == "cHL_hotspot vs background" & !is.na(or)]
+  w <- dcast(z, stratum + gene ~ refdef, value.var = c("or","q"))
+  tbl(w[order(gene, stratum), .(stratum, gene,
+      `OR (all background)` = round(or_all_background, 3),
+      `q (all)` = signif(q_all_background, 2),
+      `OR (>800um only)` = round(or_far_background, 3),
+      `q (>800um)` = signif(q_far_background, 2))],
+    "IB1 hotspot vs background, refitted with the field-contaminated reference removed. Every ligand effect grows and sharpens, which is the direction the field-extent result predicts.")
+}
+```
+
+<div class="verdict-ok">
+**Cleaning the reference strengthens every within-IB1 ligand result**, confirming the
+contaminated reference was diluting them: *CD274* pooled 1.743 → **1.833** (*q* 3.5e-4 →
+1.0e-4), *CD274* in myeloid 1.930 → **2.014** (*q* 0.050 → 0.044), *PDCD1LG2* pooled 1.810 →
+**1.915** (*q* 2.0e-8 → 1.8e-9), *PDCD1LG2* in B cells 3.132 → **3.494** (*q* 0.043 → 0.017).
+*PDCD1* stays non-significant throughout (1.285 → 1.319, *q* 0.14 → 0.073). The ligand-side
+asymmetry of the hotspot is therefore not an artifact of where the reference was drawn — it
+gets cleaner when the reference does.
+</div>
+
+<div class="verdict-no">
+**But it does not rescue the cross-sample comparison, and it does not shrink the offset.**
+Two negative results, both worth stating because both were predicted to go the other way.
+
+*First*, the between-slide offset is **not** field contamination: the reference contrast is
+essentially unmoved by cleaning (*CXCL13* in T cells 5.33 → 5.55, *LAG3* 3.20 → 2.98, *CTLA4*
+1.88 → 1.81). Whatever produces the 4.07× far-field residual, it is not Hodgkin field signal
+leaking into IB1's background — that possibility is now excluded.
+
+*Second*, **the difference-in-differences is still 0 of 30.** *CD274* in myeloid cells does
+reach nominal *p* = 0.047 (OR 1.596 [1.01, 2.53]) where it was *p* = 0.069 before, and
+*CD274* in T cells sits at *p* = 0.075 — but that is **1 nominal hit in 30 tests against 1.5
+expected by chance**, and nothing survives BH correction. This report predicted that cleaning
+the reference was the change most likely to move *CD274* across the threshold. **It did not.**
+</div>
+
+The status of *CD274* is therefore unchanged: two independent cell-type strata pointing the
+same way, both with a null reference contrast so no offset to blame, converging with the
+within-IB1 hotspot result — a coherent pattern, at chance level as a statistical claim. It
+remains the best cross-sample candidate and it still wants **more FL tissue in IB1**, not a
+better reference definition. That question is now closed as an explanation for the null.
+
+# What this step cannot support
+
+```{r cannot}
+tbl(data.table(
+  Claim = c(
+    "The exhaustion/chemokine genes differ between the two nodes' FL environments",
+    "PD-L1 (CD274) is higher in IB1's FL than in RB1's FL",
+    "The sign-consistency result (14/22 genes, p = 2.7e-12) is evidence of anything",
+    "IB1's FL lacks the follicular PD-1 pattern that RB1's FL has",
+    "9p24.1 is amplified in IB1's Hodgkin hotspots",
+    "The PD-1/PD-L1 axis is engaged (receptor and ligand in contact) anywhere",
+    "PD-1 blockade would or would not benefit this patient's FL",
+    "Any of this generalises beyond this patient",
+    "IB1's background is disease-free reference tissue",
+    "The IB1-vs-RB1 background difference is a slide offset"),
+  Status = c(
+    "RETRACTED", "UNRESOLVED - worth pursuing", "RETRACTED", "NOT RESOLVED",
+    "CONSISTENT ONLY", "UNMEASURED", "OUT OF SCOPE", "NOT SUPPORTED",
+    "FALSE for 40% of it", "PARTLY - 2.27x is field, 4.07x unattributed"),
+  Why = c(
+    "The reference zones differ by as much as the disease regions: CXCL13 5.21 vs 5.33, LAG3 4.64 vs 3.20. Deflates 76-101%",
+    "Reference contrast is NULL (1.11 / 1.07), so no offset. DiD holds 1.76 (T, p=.054) and 1.53 (myeloid, p=.069) against MDEs of 2.27 / 1.93. Underpowered, not refuted",
+    "ICC 0.875 -> 1.11 effective observations per gene, not 5. Under the correct null, 14/22 gives p = 0.143. Pseudoreplication across compartments",
+    "IB1's T-cell PDCD1 OR is 1.24 with CI [0.64, 1.74], which contains RB1's 1.82. Underpowered at 9 FL FOVs, not negative",
+    "The module (CD274+PDCD1LG2+JAK2) rises +0.391 log2 in hotspots, but RNA cannot establish copy number. Labelled EXPLORATORY",
+    "Three proximity nulls failed their positive control; withdrawn rather than reported",
+    "Descriptive spatial transcriptomics on one archival case does not speak to treatment response",
+    "n = 1 patient, two sections. q-values quantify variability across regions of this tissue only",
+    "2,360 of 5,898 non-peak bins lie within 800um of a hotspot and carry field signal. Use background >800um instead",
+    "The decaying part is a real Hodgkin field (IB1 2.71x vs RB1 1.20x, ratio 2.27x [1.62, 3.25]). The flat 4.07x residual could be the slide OR diffuse sub-threshold HRS cells; the coherence test could not separate them")),
+  "The explicit limits of step 17.")
+```
+
+<div class="verdict-mid">
+**The most useful thing step 17 establishes is a bound on the design, not a result about the
+genes.** The between-slide offset for these genes (reference-zone ORs up to 5.33) exceeds
+the within-sample regional effects (up to 1.93 in the hotspot, 1.82 in RB1's follicles).
+For those genes, **no two-slide cross-sample contrast can resolve a regional difference**,
+regardless of depth of sequencing or statistical method: the offset is not estimable from two
+sections, so it can only be assumed away.
+
+**The important qualification is that this does not hold gene by gene.** *CD274*'s
+reference-zone offset is null, so PD-L1 is not foreclosed by the design — it is merely
+underpowered, and the DiD's 1.8–2.5-fold resolution is the binding constraint rather than the
+slides. The two problems have different remedies. Removing an offset requires **more sections
+per node**, so it can be estimated instead of assumed. Recovering power for *CD274*
+specifically requires **more FL tissue in IB1** — its 20 FL fields of view against RB1's 346
+follicular ones is where the variance comes from. And the third option avoids both: a
+**within-IB1** design comparing FL tissue near and far from the Hodgkin field, which needs no
+cross-sample subtraction at all and is what step 16's CCR4 gradient did successfully.
+</div>
+
+# Appendix
+
+## Files read
+
+```{r files}
+f <- data.table(file = c(
+  "module_detection.csv", "module_contrasts.csv", "module_unit_agreement.csv",
+  "module_gene_contributions.csv", "power_bounds.csv",
+  "sign_consistency.csv", "sign_consistency_global.csv",
+  "sign_consistency_per_compartment.csv", "sign_offset_check.csv",
+  "sign_pseudoreplication.csv",
+  "binomial_model.csv", "binomial_glmer_check.csv", "did_within_celltype.csv",
+  "tx_abundance.csv",
+  "chemo_offset_check.csv", "field_extent_profile.csv", "field_extent_gradient.csv",
+  "field_extent_coherence.csv", "field_extent_verdict.csv",
+  "tx_proximity.csv"),
+  status = c(rep("used", 19), "WITHDRAWN - do not read"))
+tbl(f)
+```
+
+## Anything unavailable at render time
+
+```{r missing}
+if (length(MISSING)) tbl(data.table(missing = unique(MISSING))) else
+  cat("Nothing missing: every intermediate this report depends on was present.\n")
+```
+
+## Scripts
+
+`17_script_tx_extract.sh`, `17_script_modules.R`, `17_script_tx_coloc.R`,
+`17_script_sign_views.R`, `17_script_binomial.R`, `17_script_did_logor.R`,
+`17_script_sign_offset_check.R`, `17_script_chemo_offset_check.R`,
+`17_script_field_extent.R`, `17_summary_report.Rmd`. Shared methods text:
+`scripts/lib/methods_notes.Rmd`.

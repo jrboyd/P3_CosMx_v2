@@ -1,0 +1,311 @@
+---
+title: "Closing three gaps: cell labels, ligand-receptor proximity, 9p24.1 dosage"
+subtitle: "CosMx 6K, P3_CosMx_v2 — steps 22, 23 and 24. Two bounded nulls, one failed control, and a headline qualified."
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: {collapsed: true, smooth_scroll: true}
+    toc_depth: 3
+    number_sections: true
+    code_folding: hide
+    theme: flatly
+    self_contained: true
+    mathjax: null
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, fig.align = "center", dpi = 110)
+knitr::opts_knit$set(root.dir = "/gpfs1/pi/avolaric/files_jrboyd/P3_CosMx_v2")
+suppressPackageStartupMessages({library(data.table); library(knitr)})
+setDTthreads(1)
+ROOT <- "/gpfs1/pi/avolaric/files_jrboyd/P3_CosMx_v2"; TIER <- "matched"
+MISSING <- character()
+rd <- function(p, ...) { f <- file.path(ROOT, p)
+  if (!file.exists(f)) { MISSING <<- c(MISSING, p); return(NULL) }
+  tryCatch(fread(f, ...), error = function(e) { MISSING <<- c(MISSING, p); NULL }) }
+kb <- function(d, ...) if (!is.null(d) && nrow(d)) kable(d, ...) else invisible(NULL)
+## every number is pulled from these artifacts, never typed in
+LA  <- rd(file.path("output/24_arch_relabel", TIER, "label_agreement.csv"))
+CF  <- rd(file.path("output/24_arch_relabel", TIER, "chance_fraction.csv"))
+SG  <- rd(file.path("output/24_arch_relabel", TIER, "segregation_by_labels.csv"))
+EC  <- rd(file.path("output/24_arch_relabel", TIER, "enrichment_concordance.csv"))
+T1  <- rd(file.path("output/22_lr", TIER, "lr_proximity_tier1.csv"))
+PRF <- rd(file.path("output/22_lr", TIER, "lr_proximity_profile.csv"))
+DS  <- rd(file.path("output/23_dosage", TIER, "dosage_9p24.csv"))
+DG  <- rd(file.path("output/23_dosage", TIER, "dosage_9p24_genes.csv"))
+CN  <- rd(file.path("output/23_dosage", TIER, "dosage_confinement.csv"))
+CTL <- rd(file.path("output/24_arch_relabel", TIER, "control_chance_fraction.csv"))
+CEF <- rd(file.path("output/24_arch_relabel", TIER, "control_effect_size.csv"))
+CPD <- rd(file.path("output/24_arch_relabel", TIER, "control_paired.csv"))
+```
+
+```{css, echo=FALSE}
+.table { font-size: 0.86em; }
+.verdict-ok  { border-left:4px solid #1baf7a; padding:.5em 1em; background:#f2faf6; margin:1em 0; }
+.verdict-no  { border-left:4px solid #eb6834; padding:.5em 1em; background:#fdf4ef; margin:1em 0; }
+.verdict-mid { border-left:4px solid #2a78d6; padding:.5em 1em; background:#f1f6fc; margin:1em 0; }
+details { background:#f6f5f1; border-left:3px solid #c3c2b7; padding:.6em 1em; margin:1em 0; }
+summary { cursor:pointer; font-weight:600; color:#52514e; }
+```
+
+# What these three steps were for
+
+The manuscript-readiness review (`reports/manuscript_plan.html`) listed eight gaps. Three are
+closed here, and none of them closed the way the review expected.
+
+<div class="verdict-mid">
+**G1 (steps 24 and 24b) — the better cell labels OVERTURN a headline, and the control confirms
+it.** The two callers agree on only **70.2%** of cells. Step 16's claim that RB1 "sits at
+chance" does not survive: at matched cell counts RB1's fraction-at-chance is **0.818**
+(step-16 labels) against **0.535** (step-19 labels), and the same pair sits further from chance
+under step-19 labels in **80.3%** of comparisons (*p* = 2.9e-39). This is a correction, not a
+flag.
+
+**G4 (step 22) — ligand-receptor co-expression in proximity is measurable and small.** The
+effects are 1.01-1.18 fold and reach significance only where field-of-view counts run to the
+hundreds. The one large-looking checkpoint number is exactly the shape transcript leakage
+produces, which is what the distance-band discriminator was built to catch.
+
+**G5 (step 23) — 9p24.1 dosage evidence is NOT obtained, because the negative control fires.**
+The score does rise in IB1's hotspots, in the 99th percentile of all cytobands, with the
+non-immune genes rising too. But the identical statistic is also significant in RB1, which has
+no Hodgkin component, and the signal is spread across unrelated lineages rather than confined
+to one clone. Both facts point away from dosage.
+</div>
+
+# G1 — do the better cell labels change the architecture result?
+
+Every cell-type-conditioned result in steps 16 and 17 reads
+`output/16_celltypes/cell_celltypes.csv.gz`. Step 24 re-runs the identical permutation
+statistic — mean count of type-B neighbours within 20 um of a type-A cell, labels permuted
+within local-density deciles — twice on the same cells and the same regions, once per label
+source.
+
+<div class="verdict-no">
+**What is not re-testable, and it is not a limitation of this step.** Step 16's headline numbers
+are about **Tfh**: self-aggregation 2.74x, Tfh-B 1.62x, Tfh-macrophage 0.47x. **Step 19 has no
+Tfh label by design** — cluster-based T-cell subsetting failed three ways and is a closed
+avenue, so T stays one label and Tfh comes only from per-cell argmax subsets, which is what
+step 16 already does. The Tfh findings, and step 16's Tfh composition result, therefore cannot
+be re-derived here at all. Claiming they were "confirmed" would be false.
+</div>
+
+```{r g1-agree}
+kb(LA, caption = "Agreement between the two callers, on cells named by both")
+```
+
+<div class="verdict-mid">
+**Agreement is 70.2% overall and worst where the lineage is rare** — NK 32.1%, plasma cell
+37.5%, against B at 77.7%. Architecture enrichments nonetheless correlate at Spearman
+**0.792** with 79.1% sign agreement across the 297 (region x pair) cells testable under both.
+</div>
+
+```{r g1-chance}
+kb(CF, caption = "Fraction of cell-type pairs sitting at chance (q >= 0.05), by label source")
+kb(SG[, .(samp, bin_region, labels, pairs, med_enrich, n_sig)],
+   caption = "Lymphoid <-> myeloid segregation under each label source")
+```
+
+<div class="verdict-no">
+**R9's direction survives; the RB1 claim does not.** Lymphoid/myeloid segregation is present in
+IB1 under both label sets, and RB1 remains less structured than IB1. But step 16 reported RB1
+as essentially all at chance, 0.93–1.09, and that is wrong.
+</div>
+
+## The control: labels, or statistical power?
+
+Step 19 names about twice as many cells as the step-16 argmax leaves named, and more labelled
+cells buys power on its own. Step 24b removes that confound: for every region and every shared
+cell type it down-samples **both** sources to `min(n16, n19)`, so `n_a` and `n_b` are identical
+for every pair by construction. The matching runs in both directions on purpose — step 19 names
+~1.24× as many B cells but only ~0.45× as many T cells, because step 16's T count is the sum of
+its four T subsets, so a one-directional control would have been wrong. Down-sampling removes
+**labels, never cells**, and the neighbour graph and density deciles are built once per region
+from all cells present, which also fixes a second confound: step 24 subset to labelled cells
+before building the graph, so the two sources saw different geometries.
+
+```{r g1-ctl}
+kb(CEF, caption = "PRIMARY, threshold-free: median |log2 enrichment| — how far the enrichments sit from chance")
+kb(CPD, caption = "PAIRED, matched n: is the SAME pair further from chance under step-19 labels?")
+kb(CTL, caption = "Fraction of pairs at chance. Reported for comparability with step 24, but it is thresholded and its q depends on how many pairs pile up at the permutation floor.")
+```
+
+<div class="verdict-ok">
+**The labels carry it, not power.** Matching every type in every region leaves RB1 at
+**0.818 vs 0.535** — the gap does not close, it slightly widens against the unmatched
+0.776/0.503. Threshold-free, RB1's median |log2 enrichment| is **0.0594 vs 0.1276**, so the
+step-19 labels put the enrichments **2.15× further from chance at matched n**. Paired per
+(region × pair × seed), the same pair is further from chance under step-19 labels in **80.3%**
+of 441 comparisons (median +0.081 log2, sign test *p* = 2.9 × 10⁻³⁹).
+
+**Why matching did not help step 16:** at matched n its own number gets *worse*
+(0.776 → 0.818) while step 19's barely moves (0.503 → 0.535). The step-19 labels are more
+informative per cell, not merely more numerous. **Step 16 measured the argmax caller's silence,
+not RB1's architecture.**
+</div>
+
+<div class="verdict-mid">
+**IB1 is where the labels matter least**, and that is reassuring for the original result:
+matched, its fraction-at-chance is 0.705 vs 0.693, a difference of 0.012. Threshold-free it
+still moves (0.1751 → 0.2646), but IB1's segregation was real under either caller.
+</div>
+
+# G4 — ligand-receptor co-expression in proximity
+
+<div class="verdict-mid">
+**The words matter.** This measures **co-expression in proximity**: the rate at which a cell
+within a distance band of a ligand-positive cell is receptor-positive. It is **not** signalling,
+engagement or communication. Step 17 built three nulls for transcript-level PD-1/PD-L1
+proximity, all three failed their own positive control, and the readout was withdrawn under a
+pre-committed stopping rule. Spatial engagement of a receptor-ligand axis remains **unmeasured**
+in this project.
+</div>
+
+<details>
+<summary>The null is closed-form, which is the only reason the step is affordable</summary>
+The first version permuted positivity 300 times per pair per band per region: 2,315 curated
+pairs x 5 bands x 7 regions, i.e. ~24 million permutation evaluations over million-element
+neighbour lists. Unnecessary — with A the band's sparse adjacency and P the gene-by-cell
+positivity matrix, `OBS = P A P^T / sum(A)`, and under permutation within strata
+`EXP = Pbar (S A S^T) Pbar^T / sum(A)` where `S A S^T` is a tiny stratum-by-stratum matrix.
+Both are exact and the whole 1,125-gene square comes out in seconds. Strata are **depth decile
+x cell type**: depth because positivity tracks it at AUC ~0.70 for every gene on this platform,
+cell type because lineages cluster spatially and a pair expressed within one lineage would
+otherwise show enrichment from lineage clustering alone.
+</details>
+
+```{r g4-hits}
+if (!is.null(T1)) kb(T1[q < 0.05 & enrich_fov > 1][order(-enrich_fov)][
+  , .(samp, bin_region, ligand, receptor, band, fovs, enrich_fov = round(enrich_fov,3),
+      lo = round(lo,2), hi = round(hi,2), q = signif(q,3))],
+  caption = "Every Tier 1 pair significantly ENRICHED, FOV cluster bootstrap")
+```
+
+<div class="verdict-mid">
+**The signals are real, coherent and small.** *CXCL13*-*CXCR5* — the Tfh/B follicular axis — is
+the strongest and the only one enriched across **all four** distance bands in IB1 background
+(1.14, 1.16, 1.15, 1.13), so it cannot be a segmentation-boundary effect. The stromal
+*CCL19*/*CCL21*-*CCR7* axis follows at 1.01-1.07. The declared Hodgkin axis
+*CCL17*/*CCL22*-*CCR4* reaches only 1.055 and 1.075, in IB1 **background**.
+
+Note what carries significance: every hit sits in a region with hundreds of fields of view.
+IB1's hotspots (16 FOVs) and FL foci (25) produce nothing significant, which is the same
+power wall step 21 hit.
+</div>
+
+<div class="verdict-no">
+**The most eye-catching number is the one to distrust, and the discriminator says so.**
+*PDCD1LG2*-*PDCD1* in IB1's FL foci reaches enrichment **2.28** in the 0-10 um band — the
+largest Tier 1 value anywhere. Across the bands it runs **2.28 -> 1.54 -> 1.14 -> 1.01**: a
+monotone decay to nothing by 40-80 um, on 25 FOVs, with a 95% interval of [1.00, 4.96] and
+*q* = 0.167. That is precisely the profile transcript leakage produces — step 18 measured
+marker transcripts displaced toward marker-rich neighbours — and precisely why the distance-band
+profile is part of the design rather than an afterthought. It is **not** reported as an
+observation about the checkpoint axis.
+
+Note also that *CCL17*/*CCL22*-*CCR4* is **below** 1 inside the FL foci (0.93, 0.86 at 40-80 um),
+the opposite of what a cell-pair reading of step 16's CCR4 gradient would predict. The gradient
+is a regional association, not a pairwise one.
+</div>
+
+```{r g4-shape}
+if (!is.null(PRF)) kb(PRF[, .N, by = .(tier, shape)][order(tier, -N)],
+  caption = "Leakage-shape classification. Tier 2 is a screen and carries no p-value.")
+```
+
+# G5 — is there dosage evidence for 9p24.1 gain?
+
+Step 17's strongest within-sample result is ligand-side checkpoint elevation in IB1's hotspots
+with interferon flat, which is the pattern 9p24.1 copy gain predicts. Its 9p24.1 module was
+*CD274* + *PDCD1LG2* + *JAK2* — all three immune-inducible, so RNA could not separate gain from
+induction. Installing `org.Hs.eg.db` showed the panel carries **nine** 9p24.1 genes, five of them
+(*CDC37L1*, *ERMP1*, *KDM4C*, *MLANA*, *PLPP6*) not immune-functional. Copy gain is indifferent
+to gene function and raises all of them; interferon raises only the immune ones. The null is
+every other cytoband measured on the same panel in the same cells — 440-443 bands with at least
+five detected genes.
+
+```{r g5-rank}
+if (!is.null(DS)) kb(DS[, .(contrast, celltype, fovs_a, bands_in_null,
+   score_all = round(score_all,3), rank = paste0(rank_of,"/",bands_in_null),
+   top_pct = pct_of_bands)], caption = "9p24.1 band score against the whole-genome band null")
+```
+
+```{r g5-disc}
+if (!is.null(DS)) kb(DS[, .(contrast, celltype, n_immune, immune = round(score_immune,3),
+   n_clean, clean = round(score_clean,3), lo = round(clean_lo,2), hi = round(clean_hi,2),
+   q = signif(q_clean,3), verdict)],
+   caption = "The discriminator: immune vs non-immune genes on the same band")
+```
+
+<div class="verdict-no">
+**The negative control fires, and that settles it.** RB1 is the pure-FL recurrence; 9p24.1 gain
+is a classic-Hodgkin lesion and should be absent there, which makes RB1 the
+construction-identical control the project uses everywhere else. The clean-subset score is
+significantly elevated in **RB1's fibroblasts** (0.195, *q* = 0.039). A statistic that fires
+where the lesion cannot be is not measuring the lesion.
+
+**And the signal is not confined, which a clonal event must be.** In IB1's hotspots the score
+is up in three of four lineages and significant in two — T cells (0.480, *q* = 0.039) and
+fibroblasts (0.795, *q* = 0.039) — while flat in myeloid and negative in B. Copy gain belongs
+to a clone. Bystander T cells and fibroblasts in a hotspot are not the clone, so a score rising
+across unrelated lineages is leakage- or gradient-shaped.
+</div>
+
+```{r g5-conf}
+if (!is.null(CN)) kb(CN, caption = "Confinement: how many lineages carry the signal")
+```
+
+<div class="verdict-mid">
+**What survives.** IB1's hotspots do carry an elevated 9p24.1 neighbourhood — rank 5 of 439 in
+T cells and 5 of 443 in fibroblasts, the 99th percentile of all cytobands — and the non-immune
+genes rise more than the immune ones. Read as a regional expression gradient over a chromosomal
+neighbourhood, that is a real observation. Read as copy number, it fails both of its own checks.
+**Step 17's 9p24.1 module stays EXPLORATORY, and this step is the reason it should not be
+upgraded.**
+
+The verdict column in `dosage_9p24.csv` is control-aware: an earlier version did not consult
+RB1 and labelled RB1's own fibroblasts "DOSAGE-CONSISTENT".
+</div>
+
+```{r g5-genes}
+if (!is.null(DG)) kb(DG[grepl("hotspot", contrast) & celltype %in% c("T","fibro")][
+  order(celltype, class, -lfc)], caption = "Per-gene detail, IB1 hotspot, the two significant lineages")
+```
+
+# What these steps cannot support
+
+- **A confirmation of step 16's Tfh architecture findings.** Not re-testable: step 19 has no
+  Tfh label by design.
+- **A claim that RB1 is spatially structured to the same degree as IB1.** RB1 is less
+  structured than IB1 under both callers; what is corrected is only that it is not
+  *unstructured*.
+- **Any statement that a ligand-receptor axis is engaged, active, or signalling.** Only
+  co-expression in proximity is measured, and spatial engagement remains withdrawn from step 17.
+- **A p-value for any Tier 2 ligand-receptor pair.** Tier 2 is a screen with no bootstrap.
+- **9p24.1 copy gain, in any cell type or region.** The control fires and the signal is not
+  confined.
+- **Anything cross-sample.** Every contrast here is within one sample.
+
+# Methods
+
+```{r methods-child, child="scripts/lib/methods_notes.Rmd"}
+```
+
+# Appendix
+
+```{r missing}
+if (length(MISSING)) kb(data.table(missing = unique(MISSING))) else cat("All inputs were present.\n")
+```
+
+```
+22_script_lr_extract.R      -> output/22_lr/            LR genes, all analysable cells (sbatch)
+22_script_lr_proximity.R    -> output/22_lr/<tier>/     proximity co-expression (sbatch)
+23_script_dosage.R          -> output/23_dosage/<tier>/ 9p24.1 dosage consistency (sbatch)
+24_script_arch_relabel.R    -> output/24_arch_relabel/  architecture under both label sets
+24_script_arch_relabel_control.R -> output/24_arch_relabel/  the labels-or-power control
+24_summary_report.Rmd       -> output/24_summary/step22_24_gap_closure.html
+```
+Installed for these steps, into the user library, no new dependencies:
+`scDiffCom` 1.2.0 (curated ligand-receptor database) and `org.Hs.eg.db` 3.22.0 (cytobands).
