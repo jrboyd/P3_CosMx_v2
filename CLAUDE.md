@@ -457,6 +457,83 @@ the section than RB1's: its two largest fractions have almost completely overlap
 myeloid estimate also sits 4.4 points above the FOV median, so a few dense fields carry it.
 `output/25_figures/composition_fov_summary.csv`.
 
+## Chemokine source cells (steps 27-29)
+
+Who makes CCL17/CCL22: HRS cells or dendritic cells. `scripts/27_script_hotspot_sources.R`
+(the 80 hotspots vs RB1's own top-1% bins) and `scripts/28_script_bright_sources.R` (per
+cell, sample-wide, by brightness tier) are the analysis; step 29 is the per-cell list, the
+figures and the ROI review set. Outputs in `output/27_hotspot_sources/`,
+`output/28_bright_sources/` and `output/29_bright_cells/`.
+
+- **The hotspots are a DENSITY detector and miss most bright cells.** Pooled bin cp10k
+  dilutes an isolated bright cell (one 100-count cell adds ~52 cp10k to a ~58-cell bin,
+  under half the cut), so hotspots are clusters of moderate cells. Only **14% of IB1 cells
+  with >= 50 chemokine counts (237 of 1,693) and 18% of those >= 100 (70 of 392) sit in a
+  hotspot**; 38 of 80 hotspots contain no >= 100 cell. Step 11's 50/100/200 um sweep kept
+  the same pooled rule and so never tested this. For anything about the sources, call
+  cells, not bins.
+- **Bright cells are Hodgkin-specific; moderate ones are not.** >= 50 counts: IB1 1,693 of
+  767k cells vs RB1 **9** of 1.29M; >= 100: IB1 392, RB1 **0**. Cells with 10-49 counts
+  exist in both (IB1 ~1.9%, RB1 ~0.1%).
+- **Brighter = more HRS-leaning, not more DC.** In IB1, against depth-matched < 10 cells
+  (depth EXCLUDES the chemokine counts), BATF3 8.5x -> 25x, IL13 1.9 -> 4.0, TNFRSF8
+  1.5 -> 2.9, IRF4 2.3 -> 5.8 from the 10-19 to the 100+ tier (100+ vs 10-19: LTA 3.4,
+  BATF3 3.0, IL13 2.1, TNFRSF8 1.9, all q < 1e-10), while DC-lineage genes do not rise
+  (LAMP3 1.12 -> 0.74, XCR1 0.88 -> 0.60, CD1C and IDO1 flat). CCR7/CD80/CD83/CD40/CD86 rise
+  too -- an activated-APC programme HRS cells also carry, so not discriminating. Area rises
+  58 -> 108 um^2 but 10-49 sources are the same size in RB1, so size is partly generic.
+- **IL13, BATF3, TNFRSF8 co-occur in the same IB1 sources beyond a matched null**: triple
+  O/E **1.36** [1.29, 1.56] vs random detection-matched triples median 1.09 (p = 0.005);
+  pairs 1.09-1.18. Lineage controls give 1.47 (CD79A-MS4A1) and 1.57 (CD3D-CD3E), so the
+  triple is of lineage-like strength. **CCR7-LAMP3 does NOT co-occur (0.97)** -- no mregDC
+  subpopulation among the sources. Two limits: BATF3's matched null pool is only 13 genes
+  (its 52% detection among sources is unusual), and O/E shrinks under high detection, so
+  do not compare O/E across tiers -- use the k-of-3 shares (>= 2 of 3: 10.6% at 10-19,
+  54.6% at 100+; RB1 4.8% at 10-19). RB1's co-occurrence test is underpowered (its lineage
+  controls barely clear their null), so it is not a usable contrast.
+- **Step 27's pooled source excess is a population average over 23% of hotspot cells**,
+  too many to be HRS; read it as "IB1 sources carry an HRS-compatible excess RB1's lack"
+  (IL13 4.5x, BATF3 3.5x, CCR7 2.8x IB1/RB1), not as a cell identity.
+- **Still NOT established: that any cell is an HRS cell.** Leakage localises a programme to
+  a cell OR its contact (fact 6); FUT4 is flat (CD15 is a protein glycan, weak as RNA).
+- **A k-of-3 gate is NOT a usable HRS filter; brightness is.** Among >= 50 cells the
+  IL13/BATF3/TNFRSF8 triple is 123 observed vs ~108 expected under independence, and
+  ">= 2 of 3" is only ~2x more common in IB1 than RB1 at matched brightness, so ~45% of
+  passers would pass without HRS biology. Brightness >= 50 is ~300x Hodgkin-specific.
+  Rank within the bright cells by the step-29 score; never gate on the genes.
+- **Bright cells are NOT excluded from FL neighbourhoods.** Raw rates look enriched near FL
+  (>= 50: 2.4x inside the 40 um footprint) but FL tissue is deeper (median depth0 ~500 vs
+  ~290 beyond 800 um) and a count cut is easier to reach in deep cells. Depth-standardised,
+  no FL-distance band excludes 1 (>= 50 in footprint 1.61 [0.83, 2.40]). On the control
+  axis (ANY light-chain neighbourhood) >= 10 sources run 0.65-0.83x at 40-400 um and 1.59x
+  beyond 800 um -- a lean away from B-cell clusters in general, not from FL, and >= 50
+  cells do not share it. `output/29_bright_cells/fl_exclusion.csv`.
+
+### Step 29: per-cell list, figures, ROI review set
+
+- `source_cells.csv.gz`: every source (>= 10) in both samples with canvas px, tier, the
+  HRS-leaning score and k-of-3. **The score** is the mean over IL13/BATF3/TNFRSF8 of
+  log2((obs + 0.5) / (exp + 0.5)), exp from the same sample's < 10 cells in the same depth0
+  decile -- step 28's reference. It ranks; it does not call.
+- `roi_png/<group>/`: 120 full-resolution 150 um PNGs (+ a contact sheet per group) in six
+  groups of 20 -- high (100+), medium (50-99), low (10-49) x {random draw, top score} -- in
+  the step-15 style (imports `15_roi_pngs.py`: same ranges, Membrane x0.5, G omitted).
+  **Rings are CCL17+CCL22 density contours** (sigma 8 um) at 6 / 12 / 24 molecules per
+  100 um^2, roughly a 25 / 50 / 100-count cell's own peak, so ring count reads as
+  brightness. `roi_png_index.csv` has `own_tx_matches`: the selected cell's assigned
+  molecules must equal its chemo count (all 120 do). This is the G2 review set.
+- `ib1_chemokine_tx.csv.gz`: all 1,272,591 IB1 CCL17/CCL22 molecules (54,945 unassigned) in
+  canvas px from the flat tx file via `cosmx_local_to_px`; agrees with the per-FOV transcript
+  files (4,921 vs 4,918 in a test box).
+- **Two traps from building it.** (a) The smoke run reads the tx file's first lines, which
+  cover only FOVs 1-4 and cut the last one part-way; smoke candidates are therefore drawn
+  from the fully read FOVs, or their windows carry no molecules and the ring code never runs
+  -- which is how the first smoke PNGs came out ringless. (b) The full R run takes ~40 min,
+  almost all of it the awk pass over the 13 GB tx file.
+- Regenerate: `J=$(sbatch --parsable --mem=48G --time=1:30:00 scripts/sbatch/run_rscript.sh
+  scripts/29_script_bright_cells.R)` then `sbatch --dependency=afterok:$J --mem=16G
+  scripts/sbatch/run_python.sh scripts/29_bright_cell_rois.py` (~9 min). Both take `smoke`.
+
 ## Conventions
 
 - Region is the unit of every p-value. 154 neighbourhoods are not 400k independent
@@ -581,7 +658,22 @@ canonical *values* live in code — don't restate them, point at them — but th
 are these:
 
 - **Channel order** is 1 PanCK (blue), 2 G (green), 3 Membrane (yellow), 4 CD45 (red),
-  5 DNA (violet). Defined by `cosmx_channel_names()` / `cosmx_channel_colors()`.
+  5 DNA (violet). Defined by `cosmx_channel_names()` / `cosmx_channel_colors()`. The
+  OME-TIFF names them only B/G/Y/R/U; the marker names are the project's mapping.
+- **Channel G's marker is UNKNOWN and is not CD68.** The vendor names it nowhere (`Mean.G` in
+  the metadata). `scripts/15_script_channel_identity.R` ranks genes by per-cell correlation
+  with each channel's intensity; raw correlation is a generic brightness axis (all five
+  channels share top genes, CD45 ranks PTPRC only ~100-300th), so read the channel-SPECIFIC
+  version (r minus mean r of the other four). On that, Membrane -> B2M/MHC I and DAPI ->
+  nuclear genes behave, but G has no signal of its own: per-cell r 0.94 (IB1) / 0.83 (RB1)
+  with PanCK, specific correlations <= +0.008 in RB1, and CD68 ranks 5080 / 3362 of ~6,170.
+  Visually it is sparse ~1 um puncta, not macrophage cytoplasm. Do not caption it as a marker.
+  `output/15_imagej/channel_identity/`.
+- **Annotated ROI PNGs** (45 regions, full resolution, fixed crop ranges, hotspot/FL outlines,
+  **G omitted by default**, `--with-G` restores it):
+  `sbatch --mem=8G scripts/sbatch/run_python.sh scripts/15_roi_pngs.py IB1` ->
+  `output/15_imagej/roi_png/` (~40 s, 4.2 GB peak). Reads the crop TIFFs, so it survives a
+  scratch purge.
 - **The two diseases have fixed hues: FL is orange `#eb6834`, Hodgkin is blue `#0b3d7a`.**
   Set in `scripts/12_script_fl_vs_hodgkin_overlay.R:51-52` and carried through step 16.
 - **The two samples have fixed hues** in every comparison plot: `SAMP_COLS = c(IB1 = "#2a78d6",
