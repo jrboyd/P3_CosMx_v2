@@ -8,3 +8,4 @@ input
 .Rproj.user
 tmp.png
 .Rhistory
+__pycache__/
