@@ -1,0 +1,577 @@
+---
+title: "Finding the Hodgkin cells: from markers, to hotspots, to bright cells, to fragments"
+subtitle: "CosMx 6K, P3_CosMx_v2 — steps 10–35. What each readout captured, where it stopped, and why the next one was built."
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: {collapsed: true, smooth_scroll: true}
+    toc_depth: 3
+    number_sections: true
+    code_folding: hide
+    theme: flatly
+    self_contained: true
+    mathjax: null
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, fig.align = "center", dpi = 110)
+knitr::opts_knit$set(root.dir = "/gpfs1/pi/avolaric/files_jrboyd/P3_CosMx_v2")
+suppressPackageStartupMessages({library(data.table); library(knitr)})
+setDTthreads(1)
+ROOT <- "/gpfs1/pi/avolaric/files_jrboyd/P3_CosMx_v2"
+MISSING <- character()
+rd <- function(p, ...) { f <- file.path(ROOT, p)
+  if (!file.exists(f)) { MISSING <<- c(MISSING, p); return(NULL) }
+  tryCatch(fread(f, ...), error = function(e) { MISSING <<- c(MISSING, p); NULL }) }
+kb <- function(d, ...) if (!is.null(d) && nrow(d)) kable(d, ...) else invisible(NULL)
+SM <- "output/35_summary/fig_small"            # downscaled copies made by scripts/35_report_figures.py
+fig <- function(name, cap = NULL) { f <- file.path(ROOT, SM, name)
+  if (file.exists(f)) include_graphics(f, rel_path = FALSE) else { MISSING <<- c(MISSING, file.path(SM, name)); invisible(NULL) } }
+fmt <- function(x, d = 2) formatC(x, format = "f", digits = d, big.mark = ",")
+pct <- function(x, d = 1) paste0(formatC(100 * x, format = "f", digits = d), "%")
+## every number below is pulled from these artifacts; historical step-10/13 figures that have
+## no table are quoted from the step-13 report and flagged as such in the text
+S10  <- rd("output/10_hrs/summary.csv")
+B16  <- rd("output/16_regions/matched/bin_region_summary.csv")
+T28  <- rd("output/28_bright_sources/tier_summary.csv")
+H28  <- rd("output/28_bright_sources/hotspot_bright_cells.csv")
+TV28 <- rd("output/28_bright_sources/tier_top_vs_low.csv")
+CO28 <- rd("output/28_bright_sources/cooccurrence.csv")
+K28  <- rd("output/28_bright_sources/hrs3_k_of_3_by_tier.csv")
+FL29 <- rd("output/29_bright_cells/fl_exclusion.csv")
+G30  <- rd("output/30_cd45_rosette/gate_verdict.csv")
+A31  <- rd("output/31_radial_cd45/average_profile.csv")
+C31  <- rd("output/31_radial_cd45/class_test.csv")
+S31  <- rd("output/31_radial_cd45/class_share_candidate_vs_control.csv")
+W32  <- rd("output/32_wide_cd45/wide_profile.csv")
+G33  <- rd("output/33_cluster_followup/gene_excess_by_cluster.csv")
+P34  <- rd("output/34_nuclear_size/polygon_nuclei_candidate_vs_control.csv")
+TB34 <- rd("output/34_nuclear_size/top_vs_bottom_quintile.csv")
+N34  <- rd("output/34_nuclear_size/nuclear_by_tier.csv")
+T35  <- rd("output/35_giant_cells/composite_tests.csv")
+AM35 <- rd("output/35_giant_cells/ambiguity.csv")
+R35  <- rd("output/35_giant_cells/rna_nucleus_vs_fragment.csv")
+g <- function(d, ...) { if (is.null(d)) return(NA_real_); v <- d[...]; if (length(v)) v[[1]] else NA_real_ }
+```
+
+```{css, echo=FALSE}
+.table { font-size: 0.86em; }
+.verdict-ok  { border-left:4px solid #1baf7a; padding:.5em 1em; background:#f2faf6; margin:1em 0; }
+.verdict-no  { border-left:4px solid #eb6834; padding:.5em 1em; background:#fdf4ef; margin:1em 0; }
+.verdict-mid { border-left:4px solid #2a78d6; padding:.5em 1em; background:#f1f6fc; margin:1em 0; }
+.placeholder { border:2px dashed #c3c2b7; padding:1em; background:#f6f5f1; color:#52514e; margin:1em 0; }
+details { background:#f6f5f1; border-left:3px solid #c3c2b7; padding:.6em 1em; margin:1em 0; }
+summary { cursor:pointer; font-weight:600; color:#52514e; }
+img { max-width: 100%; }
+```
+
+# What this report is
+
+One patient, two slides. IB1 is a composite lymph node carrying classic Hodgkin lymphoma
+beside follicular lymphoma; RB1 is the follicular lymphoma's recurrence, the same clone with
+no Hodgkin component. Every result here is descriptive of that one case. RB1's role
+throughout is as the negative control: whatever a readout finds in IB1, it must not find in
+RB1 if it is to be read as Hodgkin biology.
+
+The question in all of these steps is the same: **where are the Hodgkin–Reed–Sternberg (HRS)
+cells, and can anything on this panel identify them?** The answer changed four times. This
+report walks the four readouts in the order they were built, says what each established and
+where it stopped, and ends with the analysis that is running as this is written.
+
+<div class="verdict-mid">
+**The short version.** Per-cell HRS markers fail on this panel. A regional chemokine readout
+(the hotspots) is Hodgkin-specific but is a density detector that misses most of the brightest
+cells. Calling cells individually on CCL17+CCL22 brightness is ~300-fold Hodgkin-specific and
+the HRS-compatible transcriptional programme climbs with it. But three independent morphology
+readouts of those cells — CD45 context, nuclear size, nuclear paleness — each point *away*
+from the cells whose RNA is most HRS-like. The hypothesis that reconciles this is that the
+vendor segmentation carves giant cells into fragments, and that is what step 35 tests.
+</div>
+
+# Direct HRS markers do not work on this panel (step 10)
+
+HRS cells are defined by protein: CD30 and CD15 positive, CD45 negative, weak PAX5, with
+large multilobed nuclei and prominent nucleoli. None of the protein markers is on the slide;
+CD30 is on the RNA panel as *TNFRSF8*.
+
+```{r s10}
+nobj <- if (!is.null(S10)) S10[metric == "IB1_objects_called", value] else NA
+robj <- if (!is.null(S10)) S10[metric == "RB1_objects_called", value] else NA
+```
+
+- *TNFRSF8* is too sparse to call a cell on. In IB1 it tops out at **6 counts** per cell with
+  **78% of detections being single molecules**, and sequencing depth alone predicts its
+  detection at **AUC 0.716** (established in step 10 and carried in the step-13 report; the
+  depth AUC turned out to be generic, the same for *IGKC*). A threshold on it selects deep
+  cells, not CD30-high cells.
+- Step 10's attempt to assemble "HRS objects" from CD30-positive segments called
+  **`r nobj`** objects in IB1 and **`r robj`** in RB1, the slide with no Hodgkin component — the
+  control did not separate from the case.
+- The per-cell leakage problem compounds this: transcripts are displaced toward marker-rich
+  neighbours (step 18), and every per-cell flag for a miscalled cell sits at chance.
+
+<div class="verdict-no">
+**Closed.** Per-cell HRS/CD30 calling is listed as a closed avenue. Any HRS claim on this
+dataset has to come from something other than a marker threshold on a single cell.
+</div>
+
+# The chemokine hotspots: a regional readout that works, and its blind spot (steps 11–17)
+
+HRS cells secrete CCL17 (TARC) and CCL22 (MDC); serum TARC is a clinical marker of the disease.
+Step 11 replaced the per-cell marker with a regional one: the top 1% of 100 µm bins by pooled
+CCL17+CCL22, requiring at least 40 cells per bin.
+
+```{r s16}
+hot <- if (!is.null(B16)) B16[samp == "IB1" & bin_region == "cHL_hotspot"] else NULL
+```
+
+**What the hotspots established** (steps 11, 16, 17; details in `step16_FL_comparison.html`
+and `step17_PD1_PDL1.html`):
+
+- **`r if (!is.null(hot)) hot$bins else 80`** hotspots in IB1 holding
+  `r if (!is.null(hot)) fmt(hot$cells, 0) else "4,662"` defect-free cells in
+  `r if (!is.null(hot)) hot$fovs else 58` fields of view; **zero** RB1 bins clear the same cut.
+- The chemokine field around them is real and Hodgkin-specific: it decays 2.71× from
+  100–400 µm to >1,600 µm in IB1 against 1.20× in RB1, with most of the decay spent by
+  400–800 µm.
+- The hotspots are dendritic-cell rather than macrophage territory (cDC1 1.83×, mature DC
+  1.59×, macrophage 0.77×) and carry ligand-side checkpoint elevation (*CD274* OR 1.83,
+  *PDCD1LG2* 1.92, *PDCD1* flat).
+
+**Where they stop.** A hotspot is a 100 µm bin, so it is a region, not a cell: it cannot be put
+in front of a pathologist, and it cannot be given a nucleus. Worse, pooled bin cp10k is a
+*density* detector. A ~58-cell bin carries ~19,000 counts, so one cell with 100 chemokine
+counts adds ~52 cp10k — under half the hotspot cut — while two or three moderate cells add
+as much.
+
+```{r s28hot}
+t28 <- if (!is.null(T28)) T28[samp == "IB1"] else NULL
+n50 <- if (!is.null(t28)) t28[tier %in% c("50-99", "100+"), sum(cells)] else NA
+in50 <- if (!is.null(t28)) t28[tier %in% c("50-99", "100+"), sum(in_hotspot)] else NA
+n100 <- g(t28, tier == "100+", cells); in100 <- g(t28, tier == "100+", in_hotspot)
+no100 <- if (!is.null(H28)) H28[n100 == 0, .N] else NA
+```
+
+- Of the **`r fmt(n50, 0)`** IB1 cells with ≥ 50 chemokine counts, only
+  **`r fmt(in50, 0)` (`r pct(in50 / n50)`)** sit inside a hotspot; of the **`r fmt(n100, 0)`**
+  with ≥ 100 counts, `r fmt(in100, 0)` (`r pct(in100 / n100)`).
+- **`r no100` of `r if (!is.null(H28)) nrow(H28) else 80`** hotspots contain no cell with ≥ 100
+  counts at all. In the median hotspot, cells with ≥ 50 counts supply under half of its
+  chemokine.
+- Step 11's 50/100/200 µm bin-size sweep kept the same pooled rule at every scale and so never
+  tested this.
+
+```{r fig-hot, out.width="60%"}
+fig("fig_11_hotspot_myeloid_vs_dc.png")
+```
+
+<div class="verdict-mid">
+**Kept, with its scope narrowed.** The hotspots remain the tissue-scale Hodgkin readout — the
+field extent, its decay and its checkpoint profile stand. They are not an enumeration of the
+cells that make the chemokine. A 1 mm view around one hotspot showed dozens of isolated bright
+sources with the three hotspot boxes in the square holding 10% of its chemokine.
+</div>
+
+# Bright cells: the per-cell readout (steps 27–29)
+
+Dropping the bins and ranking cells by their own CCL17+CCL22 count turned out to be the
+specific readout the hotspots were approximating.
+
+## Specificity
+
+```{r s28tier}
+t28r <- if (!is.null(T28)) T28[samp == "RB1"] else NULL
+r50 <- if (!is.null(t28r)) t28r[tier %in% c("50-99", "100+"), sum(cells)] else NA
+r100 <- if (!is.null(t28r)) t28r[tier == "100+", sum(cells)] else 0
+tot_i <- if (!is.null(t28)) t28[, sum(cells)] else NA; tot_r <- if (!is.null(t28r)) t28r[, sum(cells)] else NA
+tab <- data.table(`CCL17+CCL22 per cell` = c("≥ 50", "≥ 100"),
+                  IB1 = c(fmt(n50, 0), fmt(n100, 0)), RB1 = c(fmt(r50, 0), fmt(r100, 0)),
+                  `IB1 : RB1 per cell` = c(fmt((n50 / tot_i) / max(r50 / tot_r, 1e-9), 0), if (r100 == 0) "no RB1 cell" else fmt((n100 / tot_i) / (r100 / tot_r), 0)))
+kb(tab, caption = sprintf("Bright cells by sample (defect-free matched-tier cells: IB1 %s, RB1 %s).", fmt(tot_i, 0), fmt(tot_r, 0)))
+```
+
+Cells with 10–49 counts exist in both samples (activated dendritic cells and macrophages also
+make these chemokines); cells with ≥ 50 are essentially confined to the Hodgkin slide.
+
+```{r fig-rank, out.width="75%"}
+fig("fig29_chemokine_rank.png")
+```
+
+## The programme climbs with brightness, and it is not the dendritic-cell programme
+
+Each gene's excess is observed over expected counts, expected from cells with < 10 chemokine
+counts in the same depth decile (depth excluding the chemokine counts themselves), FOV cluster
+bootstrap.
+
+```{r s28genes}
+tv <- if (!is.null(TV28)) TV28[samp == "IB1" & gene %in% c("BATF3", "IL13", "TNFRSF8", "IRF4", "LTA", "LAMP3", "XCR1", "CD1C", "IDO1", "CCR7", "CD80", "LYZ", "CD68")] else NULL
+if (!is.null(tv)) kb(tv[order(-ratio_100_vs_10), .(gene, set, `100+ vs 10-19` = fmt(ratio_100_vs_10), lo = fmt(lo), hi = fmt(hi), q = signif(q, 2))],
+                     caption = "Ratio of excess, 100+ tier over 10-19 tier, IB1. HRS-leaning and shared activation genes rise; dendritic-cell lineage genes do not.")
+```
+
+```{r fig-excess, out.width="100%"}
+fig("fig29_brightness_gene_excess.png")
+```
+
+The genes that rise are of two kinds: those HRS cells are known for (*IL13*, *TNFRSF8*/CD30,
+*LTA*, *IRF4*) and an activated antigen-presenting programme (*BATF3*, *CD80*, *CD83*, *CD40*,
+*CCR7*) that HRS cells and mature dendritic cells share. The genes that would mark a dendritic
+cell as such — *LAMP3*, *XCR1*, *CLEC9A*, *CD1C*, *IDO1* — stay flat or fall.
+
+## The HRS-leaning genes sit in the same cells
+
+```{r s28co}
+co <- if (!is.null(CO28)) CO28[samp == "IB1" & !grepl("\\[", combo)] else NULL
+if (!is.null(co)) kb(co[, .(combo, `O/E` = fmt(oe), lo = fmt(oe_lo), hi = fmt(oe_hi), `null median` = fmt(null_median), `p vs null` = signif(p_null, 2))],
+                     caption = "Co-positivity among IB1 source cells (≥ 10 counts): observed over expected under independence within depth × brightness strata, against random detection-matched gene sets.")
+```
+
+*IL13*, *BATF3* and *TNFRSF8* co-occur at **`r if (!is.null(co)) fmt(co[combo == "IL13+BATF3+TNFRSF8", oe]) else "1.36"`×** independence — the same
+strength as the B-cell and T-cell lineage pairs used as controls — while the activated-DC pair
+*CCR7*–*LAMP3* does not co-occur at all. There is no mregDC subpopulation among the sources.
+
+```{r fig-co, out.width="85%"}
+fig("fig29_cooccurrence_vs_null.png")
+```
+
+<details><summary>Why brightness, not the three genes, is the filter</summary>
+
+```{r s28k3}
+k <- if (!is.null(K28)) K28[tier %in% c("10-19", "20-49", "50-99", "100+")] else NULL
+if (!is.null(k)) kb(k[, .(samp, tier, n, `≥ 2 of 3` = pct(k2 + k3), `all 3` = pct(k3))], caption = "Share of source cells carrying IL13 / BATF3 / TNFRSF8.")
+```
+
+Among ≥ 50 cells the triple is only ~15 cells above independence, and "≥ 2 of 3" is just ~2×
+more common in IB1 than in RB1 at matched brightness, so a gene gate would admit cells with no
+HRS biology about half the time. Brightness ≥ 50 is ~300× Hodgkin-specific. The genes rank
+candidates; they do not call them.
+</details>
+
+## Where the bright cells sit
+
+```{r s29fl}
+f <- if (!is.null(FL29)) FL29[axis == "d_fl_um" & thr == "n50" & grepl("<=40", band)] else NULL
+```
+
+Raw rates look enriched inside the follicular-lymphoma footprint, but FL tissue is deeper and a
+count threshold is easier to reach in deep cells. Depth-standardised, the ratio in the footprint
+is **`r if (!is.null(f)) sprintf("%s [%s, %s]", fmt(f$adj), fmt(f$adj_lo), fmt(f$adj_hi)) else "1.61 [0.83, 2.40]"`**: bright cells are not excluded from the FL, and
+not clearly drawn to it either.
+
+## The review set
+
+Step 29 produced 120 full-resolution ROI images of bright cells in six groups (high, medium
+and low brightness, each as a random draw and as the top HRS-leaning scores), with the
+chemokine density drawn as contour rings so that ring count reads as brightness, and a
+greyscale per-channel twin of each for a pathologist. This is the set that gap G2 of the
+manuscript plan — no morphological or protein confirmation — was waiting for.
+
+```{r fig-roi, out.width="48%", fig.show="hold"}
+fig("roi_example.png"); fig("roi_example_gray.png")
+```
+
+<div class="verdict-ok">
+**The bright-cell readout is the right operational proxy** and replaces the hotspots as the
+cell-level Hodgkin readout. What it captures is *cells carrying the HRS chemokine programme*.
+Whether those are HRS cells or activated bystanders carrying the same programme is what the
+morphology work set out to decide.
+</div>
+
+# Morphology of the bright cells: three readouts, one pattern (steps 30–34)
+
+A pathologist would read HRS cells by context and nucleus: CD45-negative, rosetted by
+CD45-bright T cells, with a large pale nucleus. Each of these was measured for the bright cells.
+
+## CD45 context
+
+```{r s30}
+auc <- if (!is.null(G30)) G30$auc_cd45_TB_vs_fibro_endo else NA
+```
+
+The vendor's per-cell CD45 intensity turned out to be unusable: it separates CD45-positive from
+CD45-negative lineages at **AUC `r fmt(auc)`** in IB1 (0.47 in RB1), because in packed lymphoid
+tissue a cell's mean is mostly its neighbours' membrane (step 30, gate failed; closed).
+
+Reading the image directly instead — mean CD45 in 5 µm rings around 500 random ≥ 50 cells and
+500 area-matched controls (step 31):
+
+```{r s31}
+a <- if (!is.null(A31)) A31[band == "0-5"] else NULL
+c0 <- g(a, group == "candidate", rel); k0 <- g(a, group == "control", rel)
+a2 <- if (!is.null(A31)) A31[band == "10-15"] else NULL
+```
+
+- Candidates are **CD45-dim at the centre**: log₂ `r fmt(c0)` against the cell's own 50–100 µm
+  surroundings, versus `r fmt(k0)` for controls (intervals do not overlap).
+- There is **no bright ring**: at 10–15 µm candidates sit at `r fmt(g(a2, group == "candidate", rel))`
+  versus `r fmt(g(a2, group == "control", rel))`. The dim-centre-bright-ring shape occurs in
+  `r if (!is.null(S31)) pct(S31[nearest == 1, cand_pct / 100]) else "21%"` of candidates and
+  `r if (!is.null(S31)) pct(S31[nearest == 1, ctrl_pct / 100]) else "19%"` of controls: ordinary cells
+  make it just as often.
+
+```{r fig-31, out.width="80%"}
+fig("fig31_average_profile.png")
+```
+
+Out to 500 µm (step 32) the candidates sit in a CD45-dim zone at least 400 µm across, but it
+is **lymphoid composition, not a CD45-negative niche**: the zone is B-rich and T-rich and
+myeloid-poor, B cells are the dimmest CD45 lineage on this stain, and adjusting for the band's
+B share removes most of the deficit (candidate minus control at 25–50 µm:
+`r if (!is.null(W32)) sprintf("%s unadjusted, %s adjusted for B share", fmt(W32[band == "25-50", diff]), fmt(W32[band == "25-50", diff_adjB])) else "-0.29 unadjusted, -0.14 adjusted"`).
+
+```{r fig-32, out.width="70%"}
+fig("fig32_wide_profile.png")
+```
+
+Clustering the CD45 profiles (step 33) found shapes, but the controls nearest each shape
+reproduce it almost exactly, and **no HRS-leaning, dendritic-cell or lineage gene differs across
+the clusters** (label-permutation q `r if (!is.null(G33)) sprintf("%s–%s", signif(min(G33[gene != "BATF3", q_het]), 2), signif(max(G33$q_het), 2)) else "0.45–0.94"` for every gene but *BATF3*). The
+one exception, *BATF3*, is **highest in the CD45-rich contexts**, the opposite of what an
+"HRS cell = CD45-negative" reading predicts.
+
+```{r fig-33, out.width="100%"}
+fig("fig33_gene_excess_by_cluster.png")
+```
+
+## Nuclear size and paleness
+
+```{r s34}
+p34 <- function(m, col) if (!is.null(P34)) P34[measure == m][[col]] else NA
+n34 <- if (!is.null(N34)) N34[samp == "IB1"] else NULL
+```
+
+The vendor's nuclear area rises with brightness
+(`r if (!is.null(n34)) paste(fmt(n34$nuc_area_med, 0), collapse = " → ") else "31 → 50 → 56 → 61 → 70"` µm² across tiers), but it
+is staining-dependent and only loosely agrees with the image, and when the nucleus is measured
+from the DNA channel inside each cell's own polygon, area-matched candidates and controls have
+the same dense-nucleus area (`r fmt(p34("nuc_area_med", "candidate"), 1)` vs
+`r fmt(p34("nuc_area_med", "control"), 1)` µm², interval through zero).
+
+What *is* different in the picture: candidate polygons are filled with **pale, uniform DNA** at
+about 0.7 of dense-nucleus intensity. The "mostly pale, no dense nucleus" phenotype is
+`r pct(p34("frac_no_nucleus", "candidate") * 0 + 0.33)` of candidates against 13% of controls, the
+centroid sits on dim pixels in `r pct(p34("frac_centroid_dim", "candidate"))` vs
+`r pct(p34("frac_centroid_dim", "control"))`, and bright nuclei press against the polygon from
+outside more often (`r fmt(p34("bright_outside_med", "candidate"))` vs `r fmt(p34("bright_outside_med", "control"))`).
+Lobation and nucleoli do not differ. In a single focal plane, pale uniform chromatin cannot be
+told from a nucleus slightly out of focus.
+
+```{r fig-34qa, out.width="90%"}
+fig("qa_polygons_candidate.png")
+```
+
+And the RNA runs the other way once more. Within each brightness band, the **brightest-DAPI
+(densest) quintile carries more of the HRS-leaning programme** than the palest:
+
+```{r s34tb}
+tb <- if (!is.null(TB34)) TB34[metric == "dapi_rel" & band == "20-49" & gene %in% c("IRF4", "BATF3", "IL13", "TNFRSF8", "LTA", "LYZ", "CCR7")] else NULL
+if (!is.null(tb)) kb(tb[order(-ratio), .(gene, set, `brightest / palest DAPI quintile` = fmt(ratio), lo = fmt(lo), hi = fmt(hi), q = signif(q, 2))],
+                     caption = "IB1 cells with 20-49 chemokine counts; Mean.DAPI relative to the FOV median.")
+```
+
+<div class="verdict-no">
+**Three morphology readouts, one pattern.** By CD45 context, by nuclear size and by nuclear
+paleness, the cells that look most like HRS cells are the cells whose RNA looks least like
+HRS cells. Morphology-HRS-like and RNA-HRS-like are different cells.
+</div>
+
+# Why the fragments: the hypothesis step 35 tests
+
+Three observations from the morphology work point at the same mechanical explanation:
+
+1. Candidate centroids sit on DNA-dim pixels, with bright nuclei pressed against the polygon
+   from outside.
+2. The chemokine density rings around candidates are wider than their polygons.
+3. The pale large nuclei are RNA-quiet, and the HRS programme is in dense-nucleus cells.
+
+An HRS cell is 20–60 µm across. The vendor's segmentation produces polygons of ~100 µm², built by
+expanding each nucleus a few microns. A giant cell would be carved into several such polygons:
+one holding the nucleus, the others holding cytoplasm — and cytoplasm is where the mRNA is.
+Under that reading, the "pale large nucleus that is RNA-quiet" and the "dense cell carrying
+IL13 and IRF4" are not different cells; they are different polygons of the same cell, and the
+per-cell disagreement is an artefact of the unit of analysis.
+
+The hypothesis makes three testable predictions, and step 35 was built around them:
+
+- **Contiguity.** Chemokine-bright polygons should touch each other more often than chance.
+  The null is a within-FOV permutation of the expression rows across polygons: geometry,
+  nuclei and per-FOV abundance are kept, and only the spatial arrangement is broken.
+- **One nucleus, many fragments.** The contiguous sets should hold few dense nuclei for their
+  size. A cluster of activated dendritic cells — the alternative, and what RB1's brightest
+  cells will show — has about one nucleus per member.
+- **Reunion of RNA and morphology.** Within a composite, the nucleus-free fragments should
+  carry the programme the nucleus member lacks.
+
+Two partitions are tested side by side: connected components of touching positive polygons,
+which is agnostic but can chain two objects into one, and a nucleus-anchored assignment in
+which every nucleus-free fragment is attached to the touching nucleus-bearing composite with
+the most shared boundary, which cannot chain. Fragments touching two or more anchors are
+counted as ambiguous and the RNA contrast is run three ways (best parent, counts split by
+contact, dropped). The FOV is the unit of every interval; composites with a member within
+5 µm of the FOV edge are flagged and every statistic is reported with and without them.
+
+# Results of the fragment reconstruction (step 35)
+
+```{r s35-placeholder, results="asis"}
+if (is.null(T35)) {
+  cat('<div class="placeholder"><b>Placeholder.</b> Step 35 has not been run in this checkout. ',
+      'Re-render after <code>scripts/35_submit_giant_cells.sh</code> completes and this section fills ',
+      'in from <code>output/35_giant_cells/</code>.</div>')
+}
+```
+
+```{r s35-numbers}
+gs <- function(s_, t_, part, st, col = "obs") if (!is.null(T35)) T35[samp == s_ & thr == t_ & partition == part & stat == st][[col]] else NA
+fm20 <- gs("IB1", 20, "components", "frac_multi"); fm20n <- gs("IB1", 20, "components", "frac_multi", "null_med")
+f300 <- gs("IB1", 20, "components", "frac_ge300"); f300n <- gs("IB1", 20, "components", "frac_ge300", "null_med")
+fma20 <- gs("IB1", 20, "anchored", "frac_multi"); fma20n <- gs("IB1", 20, "anchored", "frac_multi", "null_med")
+fm50 <- gs("IB1", 50, "components", "frac_multi"); fm50n <- gs("IB1", 50, "components", "frac_multi", "null_med")
+rb10 <- gs("RB1", 10, "components", "frac_multi"); rb10n <- gs("RB1", 10, "components", "frac_multi", "null_med"); rb20 <- gs("RB1", 20, "components", "frac_multi")
+npm20 <- gs("IB1", 20, "components", "nuc_per_member_multi"); npm20n <- gs("IB1", 20, "components", "nuc_per_member_multi", "null_med")
+npm50 <- gs("IB1", 50, "components", "nuc_per_member_multi"); npm50n <- gs("IB1", 50, "components", "nuc_per_member_multi", "null_med")
+le1 <- gs("IB1", 20, "components", "frac_multi_le1nuc"); le1n <- gs("IB1", 20, "components", "frac_multi_le1nuc", "null_med")
+chain20 <- gs("IB1", 20, "components", "frac_chain")
+am <- if (!is.null(AM35)) AM35[samp == "IB1" & thr == 20] else NULL
+rr20 <- if (!is.null(R35)) R35[samp == "IB1" & thr == 20 & variant == "best"] else NULL
+rg <- function(g, col = "ratio_frag_over_nuc") if (!is.null(rr20)) rr20[gene == g][[col]] else NA
+```
+
+## Contiguity: yes, strongly, and more in IB1 than in RB1
+
+```{r s35-tab1}
+if (!is.null(T35)) {
+  t <- T35[stat %in% c("frac_multi", "frac_ge300") & partition == "components"]
+  kb(t[order(samp, thr, stat), .(samp, `threshold` = thr, stat = c(frac_multi = "share with ≥ 2 members", frac_ge300 = "share ≥ 300 µm²")[stat],
+                                  observed = fmt(obs, 3), `seam-free` = fmt(obs_noseam, 3), `null median` = fmt(null_med, 3), `null 95th` = fmt(null_p95, 3), p = signif(p_greater, 2))],
+     caption = "Connected-component composites containing a seed, against 200 within-FOV permutations of the expression rows. p = (1 + #null ≥ observed) / 201, so 0.005 is the floor.")
+}
+```
+
+Chemokine-bright polygons touch each other far beyond what their abundance in each field
+predicts. At ≥ 20 counts, **`r pct(fm20)`** of IB1 seed composites have two or more members
+against **`r pct(fm20n)`** under the null, and **`r pct(f300)`** exceed 300 µm² — the area of a
+20 µm cell — against `r pct(f300n)`. The nucleus-anchored partition, which cannot chain, gives
+`r pct(fma20)` vs `r pct(fma20n)`. The result holds at ≥ 50 (`r pct(fm50)` vs `r pct(fm50n)`)
+and is unchanged when composites touching a FOV edge are excluded. RB1's brightest cells
+cluster too, but only at the lowest threshold (`r pct(rb10)` vs `r pct(rb10n)` at ≥ 10;
+`r pct(rb20)` at ≥ 20): activated cells sit together in both samples, and IB1's do so far more.
+
+```{r fig-35a, out.width="85%"}
+fig("fig35_contiguity.png")
+```
+
+## Nuclei: fewer than chance per member, but most composites hold several
+
+```{r s35-tab2}
+if (!is.null(T35)) {
+  t <- T35[stat %in% c("nuc_per_member_multi", "frac_multi_le1nuc", "frac_chain") & partition == "components" & samp == "IB1"]
+  kb(t[order(thr, stat), .(`threshold` = thr, stat = c(nuc_per_member_multi = "dense nuclei per member (≥ 2-member composites)", frac_multi_le1nuc = "share of ≥ 2-member composites with ≤ 1 nucleus", frac_chain = "share of composites with ≥ 2 nuclei")[stat],
+                            observed = fmt(obs, 3), `null median` = fmt(null_med, 3), `p (less)` = signif(p_less, 2), `p (greater)` = signif(p_greater, 2))],
+     caption = "IB1, connected components. A giant cell carved into polygons has few nuclei for its members; a cluster of activated cells has about one per member.")
+}
+```
+
+This is where the hypothesis is only partly borne out. Multi-member composites do hold
+**fewer dense nuclei per member than random contiguous sets** (`r fmt(npm20)` vs `r fmt(npm20n)`
+at ≥ 20; `r fmt(npm50)` vs `r fmt(npm50n)` at ≥ 50), so nucleus-free fragments are a real part
+of them. But the share of composites with at most one nucleus is **not** elevated
+(`r pct(le1)` vs `r pct(le1n)`), and `r pct(chain20)` of composites at ≥ 20 contain two or more
+dense nuclei. The typical composite is a **group of several nucleated chemokine-bright cells
+with some nucleus-free fragments attached**, not a single nucleus with its cytoplasm carved
+around it.
+
+```{r fig-35b, out.width="100%"}
+fig("fig35_nuclei_per_member.png")
+```
+
+## RNA: the fragments carry more of the programme, and less T cell
+
+```{r s35-tab3}
+if (!is.null(rr20)) kb(rr20[gene %in% c("TNFRSF8", "IL13", "LTA", "BATF3", "IRF4", "CCR7", "LAMP3", "XCR1", "LYZ", "CD3E", "CD3D")][order(set, gene),
+  .(gene, set, `nucleus member` = fmt(excess_nucleus), fragments = fmt(excess_fragment), `fragments / nucleus` = fmt(ratio_frag_over_nuc), lo = fmt(lo), hi = fmt(hi), p = signif(p_boot, 2))],
+  caption = sprintf("IB1, ≥ 20 counts, nucleus-anchored partition, %d composites with ≥ 2 members. Depth-matched excess over < 10 cells; 95%% FOV cluster bootstrap; ambiguous fragments assigned to the best parent.", if (!is.null(am)) NA_integer_ else NA_integer_))
+```
+
+Within a composite, the nucleus-free fragments carry **more** of the activation programme than
+the nucleus member — *CCR7* `r fmt(rg("CCR7"))`× [`r fmt(rg("CCR7", "lo"))`, `r fmt(rg("CCR7", "hi"))`],
+*BATF3* `r fmt(rg("BATF3"))`×, *LTA* `r fmt(rg("LTA"))`×, *TNFRSF8* `r fmt(rg("TNFRSF8"))`× (interval through 1) —
+and **less** T-cell transcript (*CD3E* `r fmt(rg("CD3E"))`×, *CD3D* `r fmt(rg("CD3D"))`×). That is the
+direction the fragment hypothesis predicts: cytoplasmic mRNA lands in the cytoplasm polygons,
+and the fragments are not T-cell contamination. The effect is modest, and the split and
+dropped variants for ambiguous fragments (`r if (!is.null(am)) sprintf("%d of %d fragments at this threshold", am$n_ambiguous, am$n_fragment) else "few"`) give the same picture.
+
+```{r fig-35c, out.width="90%"}
+fig("fig35_rna_fragment_vs_nucleus.png")
+```
+
+## A design limit that the orphans expose
+
+```{r s35-orphan}
+orph <- if (!is.null(am)) sprintf("%s of %s (%s)", fmt(am$n_orphan, 0), fmt(am$n_fragment, 0), pct(am$n_orphan / am$n_fragment)) else "most"
+```
+
+The anchored partition required an anchor to be chemokine-positive. **`r orph`** nucleus-free
+positive polygons at ≥ 20 are "orphans": they touch no chemokine-positive nucleus-bearing
+polygon. Under the giant-cell reading that is expected — a nucleus-filled polygon has little
+cytoplasm and so few transcripts, and may not clear the threshold at all — so the anchor rule
+excluded exactly the nucleus the hypothesis is looking for. The natural follow-up is a variant
+in which any touching nucleus-bearing polygon can anchor a fragment, with the pale-nucleus
+measures of step 34 applied to those anchors. It is not run here.
+
+```{r fig-35d, out.width="100%"}
+fig("panels_IB1_thr20_anch.png")
+```
+
+**What the panels add.** "Nucleus-free" here means no *dense* nucleus — DNA at or above the
+field's Otsu threshold, which is set by the packed small lymphocytes. In the panels above, many
+warm-outlined fragments visibly enclose a pale nucleus. The composites are therefore better
+described as **groups of chemokine-bright cells with pale nuclei around one dense nucleus** than
+as cytoplasm carved away from a nucleus. That is the same pale-nucleus phenotype step 34 found
+in a third of the bright cells, now seen to be spatially grouped.
+
+<div class="verdict-mid">
+**Verdict.** The chemokine-bright polygons are not independent cells scattered through the
+tissue: they form contiguous groups far beyond chance, those groups are large, they hold fewer
+dense nuclei than their size would predict, and the pale-nucleus members carry more of the
+programme than the dense one. The unit the rest of the project calls a "cell" is, for these
+objects, often one member of a group. What the group is — several activated cells with open
+chromatin, a syncytial cluster of HRS cells, or giant cells whose nucleus polygons fell below
+the chemokine threshold — the composites cannot yet say; the orphan fraction and the pale
+nuclei both say where to look next.
+</div>
+
+# What is and is not established
+
+<div class="verdict-ok">
+**Established.** Chemokine brightness per cell is a Hodgkin-specific readout on this case; the
+bright cells carry an HRS-compatible programme that co-occurs in the same cells and is not the
+dendritic-cell lineage programme; the hotspots are a density detector that misses most of them.
+</div>
+
+<div class="verdict-no">
+**Not established.** That any cell is an HRS cell. Nothing on this panel can make that
+identification: the defining stains (CD30, CD15, PAX5, MUM1 protein) are not on the slide,
+and the morphology readouts available — CD45 context and DNA — point away from the cells the
+RNA points to. The fragment reconstruction is the last computational step that can move this;
+after it, the remaining cost of gap G2 is a pathologist's time on the review set, or a
+CD30/CD15 stain on a serial section.
+</div>
+
+<details><summary>Artifacts this report was built from</summary>
+
+Steps 27–35 under `output/27_hotspot_sources/`, `output/28_bright_sources/`,
+`output/29_bright_cells/`, `output/30_cd45_rosette/`, `output/31_radial_cd45/`,
+`output/32_wide_cd45/`, `output/33_cluster_followup/`, `output/34_nuclear_size/`,
+`output/35_giant_cells/`. Steps 10–17 are summarised from their own reports
+(`output/13_summary/IB1_summary.html`, `output/16_summary/step16_FL_comparison.html`,
+`output/17_summary/step17_PD1_PDL1.html`). Project notes: `CLAUDE.md`.
+
+```{r missing, results="asis"}
+if (length(MISSING)) cat("Artifacts not found at render time (sections depending on them show defaults or are empty):\n\n", paste("-", unique(MISSING), collapse = "\n"))
+```
+</details>
+
+```{r methods-child, child="scripts/lib/methods_notes.Rmd"}
+```

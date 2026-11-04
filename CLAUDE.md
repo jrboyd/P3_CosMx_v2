@@ -602,6 +602,38 @@ figures and the ROI review set. Outputs in `output/27_hotspot_sources/`,
     pixels (725/1,000 flooded). Polygon-bounded measurement is the usable design.
   - Image reads from scratch are I/O-bound and variable (0.2-2 s per 40 um window).
 
+- **Fragment reconstruction (step 35): chemokine-bright polygons are CONTIGUOUS far beyond
+  chance, but the composites are mostly multi-nucleated groups, not single carved-up giant
+  cells.** `scripts/35_submit_giant_cells.sh` (select -> per-FOV polygon rasterisation and
+  adjacency as a SLURM array -> analyze; ~1 h). Two partitions: connected components of
+  touching positive polygons (contact >= 3 px) and a nucleus-anchored assignment (one dense
+  nucleus per composite); null = 200 within-FOV permutations of the expression rows.
+  - At >= 20 counts **60% of IB1 seed composites have >= 2 members vs 6% under the null,
+    20% exceed 300 um^2 vs 0.1%** (p at the 0.005 floor); anchored 20% vs 1.5%; holds at
+    >= 50 (22% vs 1.4%) and without seam composites. RB1's brightest cluster only at >= 10
+    (19% vs 1.3%), not at >= 20 (1.7%).
+  - Nuclei: multi-member composites hold FEWER dense nuclei per member than random
+    contiguous sets (0.75 vs 0.84 at >= 20, 0.71 vs 0.85 at >= 50) but 44% contain >= 2
+    nuclei and the "<= 1 nucleus" share is not elevated (26% vs 28%). The typical composite
+    is several nucleated bright cells plus some nucleus-free fragments.
+  - RNA within composites (anchored, 312 composites): fragments carry MORE programme than
+    the nucleus member (CCR7 1.84x [1.51, 2.27], BATF3 1.25x, LTA 1.25x, TNFRSF8 1.34x ns)
+    and LESS T transcript (CD3E 0.45x, CD3D 0.64x) -- the predicted direction, modest size,
+    same under the split/dropped ambiguity variants (8% of fragments ambiguous).
+  - **"Nucleus-free" means no DENSE nucleus** (DNA >= the field's Otsu, set by packed small
+    lymphocytes). The panels (`panels_IB1_thr20_anch.png`) show many fragments enclosing a
+    PALE nucleus, so composites are groups of chemokine-bright pale-nucleus cells around one
+    dense nucleus -- step 34's pale phenotype, spatially grouped -- not cytoplasm carved off a
+    nucleus. Read "fragment" accordingly.
+  - **Design gap found, not fixed:** anchors had to be chemokine-positive, so 69% of
+    nucleus-free fragments at >= 20 are ORPHANS touching no positive nucleated polygon. A
+    giant cell's nucleus polygon has little cytoplasm and may not clear the threshold. The
+    follow-up is "any nucleus-bearing polygon can anchor", with step 34's pale-nucleus
+    measures on those anchors. `output/35_giant_cells/`; `35_composite_panels.py` draws the
+    largest composites on morphology; report: `output/35_summary/hrs_candidates.html`
+    (`scripts/35_summary_report.Rmd`, rendered by `scripts/sbatch/render_35_summary.R` after
+    `scripts/35_report_figures.py`).
+
 ### Step 29: per-cell list, figures, ROI review set
 
 - `source_cells.csv.gz`: every source (>= 10) in both samples with canvas px, tier, the
