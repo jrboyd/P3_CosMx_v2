@@ -121,6 +121,59 @@ def density(tx_x, tx_y, x0, y0, n, um_per_px):
     return dens[M:M + n, M:M + n] / (um_per_px ** 2) * 100.0
 
 
+GRAY_ORDER = ["DNA", "CD45", "Membrane", "PanCK"]   # most to least useful for HRS morphology
+
+
+def gray_figure(arr, ranges, cx, cy, n, head_lines, path, dens):
+    """Single-channel panels, 2 x 2, each grayscale over the composite's fixed range,
+    with the composite's CCL17+CCL22 contour rings drawn on every panel.
+
+    No Membrane gain here: the composite halves it for colour balance, but judging a
+    cell as membrane-DIM needs the channel at its own scale. The image is grey; only the
+    rings carry colour (the composite's LEVELS), so the PNG is RGB.
+    """
+    names = [nm for nm, _ in rp.CHANNELS]
+    gap = 12
+    panels = []
+    for nm in GRAY_ORDER:
+        ci = names.index(nm)
+        lo, hi = ranges[ci]
+        v = np.clip((arr[ci].astype(np.float32) - lo) / (hi - lo), 0.0, 1.0) * 255.0
+        p = np.repeat(v[..., None], 3, axis=2)
+        for lev, rgb in LEVELS:
+            ring(p, dens >= lev, rgb, RING_PX)
+        crosshair(p, cx, cy)
+        rp.put_text(p, "%s   %.0f-%.0f" % (nm, lo, hi), 16, 16, WHITE, 34)
+        panels.append(p)
+    bl = int(round(rp.SCALEBAR_UM / rp.UM_PER_PX))
+    p = panels[-1]
+    bx1, by = n - 40, n - 50
+    p[by - 6:by + 6, bx1 - bl - 20:bx1 + 20] *= 0.35
+    p[by - 4:by + 4, bx1 - bl:bx1] = 255
+    rp.put_text(p, "%d µm" % rp.SCALEBAR_UM, bx1 - bl, by - 52, WHITE, 26)
+    vgap = np.zeros((n, gap, 3), np.float32)
+    top = np.concatenate([panels[0], vgap, panels[1]], axis=1)
+    bot = np.concatenate([panels[2], vgap, panels[3]], axis=1)
+    grid = np.concatenate([top, np.zeros((gap, top.shape[1], 3), np.float32), bot], axis=0)
+    lines = head_lines + [
+        [("Each panel is ONE channel in grayscale over the same fixed range as the composite "
+          "(no Membrane gain). Crosshair = selected cell; G omitted (marker unknown).", GREY)],
+        [("Rings: CCL17+CCL22 molecule density (sigma %g µm) at" % SIG_UM, GREY)]
+        + [("%g" % lev, rgb) for lev, rgb in LEVELS]
+        + [("per 100 µm², the same rings as the composite.", GREY)],
+        [("Look for: a large CD45-NEGATIVE cell ringed by CD45-bright small lymphocytes; a large or "
+          "lobed nucleus with dark (DNA-poor) nucleoli in DNA; membrane dimmer than its neighbours "
+          "(B2M / MHC-I loss -- but IB1 has a dim-membrane staining defect, so compare locally only); "
+          "PanCK negative.", WHITE)],
+        [("A candidate ranked on RNA, NOT an identified HRS cell. The defining HRS stains "
+          "(CD30, CD15, PAX5, MUM1 protein) are not on this slide.", WHITE)],
+    ]
+    out = np.concatenate([grid, rp.caption_strip(grid.shape[1], lines)], axis=0)
+    a8 = np.ascontiguousarray(out.clip(0, 255).round().astype(np.uint8))
+    pyvips.Image.new_from_memory(a8.tobytes(), a8.shape[1], a8.shape[0], 3,
+                                 "uchar").pngsave(path, compression=6)
+
+
 def read_csv(path):
     op = gzip.open if path.endswith(".gz") else open
     with op(path, "rt", newline="") as fh:
@@ -175,15 +228,31 @@ def main():
                     rejected["blank"] += 1
                     continue
                 img = rp.composite(arr, ranges, OMIT)
-                del arr
                 np.clip(img, 0, 255, out=img)
-
+                slot = len(kept) + 1
+                stem = os.path.join(gdir, "%02d_%s" % (slot, c["cell_id"]))
+                head_lines = [
+                    [("%s  #%d/%d" % (gtitle, slot, N_PER_GROUP), WHITE)],
+                    [("%s   CCL17+CCL22 %s counts (CCL17 %s, CCL22 %s)   area %.0f µm²   depth %s"
+                      % (c["cell_id"], c["chemo"], c["CCL17"], c["CCL22"], float(c["Area.um2"]),
+                         c["depth0"]), WHITE)],
+                    [("IL13 %s  BATF3 %s  CD30 %s  (%s of 3 detected)   HRS-leaning score %+.2f   IRF4 %s  LTA %s  CCR7 %s  LAMP3 %s"
+                      % (c["IL13"], c["BATF3"], c["TNFRSF8"], c["k3"], float(c["hrs_score"]),
+                         c["IRF4"], c["LTA"], c["CCR7"], c["LAMP3"]), (150, 190, 255))],
+                ]
                 own_n = own.get((c["fov"], c["cell_ID"]), 0)
                 if own_n != int(c["chemo"]):
                     log("  WARNING %s: %d assigned molecules in the transcript table vs chemo %s"
                         % (c["cell_id"], own_n, c["chemo"]))
                 sel = (TX >= x0 - 900) & (TX < x0 + n + 900) & (TY >= y0 - 900) & (TY < y0 + n + 900)
                 dens = density(TX[sel], TY[sel], x0, y0, n, um)
+
+                # "_gray" sorts straight after its composite in a directory listing
+                gray_figure(arr, ranges, cx - x0, cy - y0, n,
+                            [[(t, GREY if col == (150, 190, 255) else col) for t, col in ln]
+                             for ln in head_lines], stem + "_gray.png", dens)
+                del arr
+
                 for lev, rgb in LEVELS:
                     ring(img, dens >= lev, rgb, RING_PX)
 
@@ -206,15 +275,7 @@ def main():
                 img[by - 4:by + 4, bx1 - bl:bx1] = 255
                 rp.put_text(img, "%d µm" % rp.SCALEBAR_UM, bx1 - bl, by - 52, WHITE, 26)
 
-                slot = len(kept) + 1
-                lines = [
-                    [("%s  #%d/%d" % (gtitle, slot, N_PER_GROUP), WHITE)],
-                    [("%s   CCL17+CCL22 %s counts (CCL17 %s, CCL22 %s)   area %.0f µm²   depth %s"
-                      % (c["cell_id"], c["chemo"], c["CCL17"], c["CCL22"], float(c["Area.um2"]),
-                         c["depth0"]), WHITE)],
-                    [("IL13 %s  BATF3 %s  CD30 %s  (%s of 3 detected)   HRS-leaning score %+.2f   IRF4 %s  LTA %s  CCR7 %s  LAMP3 %s"
-                      % (c["IL13"], c["BATF3"], c["TNFRSF8"], c["k3"], float(c["hrs_score"]),
-                         c["IRF4"], c["LTA"], c["CCR7"], c["LAMP3"]), (150, 190, 255))],
+                lines = head_lines + [
                     [("Channels:", GREY)]
                     + [("%s %.0f-%.0f%s" % (nm, lo, hi, " x%g" % rp.GAIN[nm] if nm in rp.GAIN else ""), rgb)
                        for (nm, rgb), (lo, hi) in zip(rp.CHANNELS, ranges) if nm not in OMIT]
@@ -228,13 +289,14 @@ def main():
                       % (um, WIN_UM, x0, y0), AMBER)],
                 ]
                 out_img = np.concatenate([img, rp.caption_strip(n, lines)], axis=0)
-                png = os.path.join(gdir, "%02d_%s.png" % (slot, c["cell_id"]))
+                png = stem + ".png"
                 a8 = np.ascontiguousarray(out_img.clip(0, 255).round().astype(np.uint8))
                 pyvips.Image.new_from_memory(a8.tobytes(), a8.shape[1], a8.shape[0], 3,
                                              "uchar").pngsave(png, compression=6)
                 kept.append((slot, c, png, img))
                 index.append({"group": gkey, "slot": slot, "candidate_rank": c["rank"],
                               "cell_id": c["cell_id"], "png": os.path.relpath(png, PNG_DIR),
+                              "png_gray": os.path.relpath(stem + "_gray.png", PNG_DIR),
                               "chemo": c["chemo"], "hrs_score": c["hrs_score"], "k3": c["k3"],
                               "IL13": c["IL13"], "BATF3": c["BATF3"], "TNFRSF8": c["TNFRSF8"],
                               "in_hotspot": c["hot"], "own_tx": own_n,
