@@ -624,7 +624,14 @@ figures and the ROI review set. Outputs in `output/27_hotspot_sources/`,
     lymphocytes). The panels (`panels_IB1_thr20_anch.png`) show many fragments enclosing a
     PALE nucleus, so composites are groups of chemokine-bright pale-nucleus cells around one
     dense nucleus -- step 34's pale phenotype, spatially grouped -- not cytoplasm carved off a
-    nucleus. Read "fragment" accordingly.
+    nucleus. Read "fragment" accordingly. **The panels also draw every CCL17/CCL22 molecule**
+    (from step 29's `ib1_chemokine_tx.csv.gz`, IB1 only) with the step-29 density rings, which
+    is what decides whether a composite is one carved cell (one cloud continuous across the
+    polygon edge: cid 3882, 4155, 3505) or a chain of separately bright cells (a cloud per
+    member: cid 2617, 4230, 2367, 4659) -- the 24 largest are mostly the latter. cid 3505 is
+    the anchor rule failing on screen: 787 molecules in three pale-nucleus polygons attached
+    to a 21-count dense-nucleus bystander. A per-edge saddle statistic (density at the shared
+    edge over the members' peaks) would classify this without the eye; not built.
   - **Design gap found, not fixed:** anchors had to be chemokine-positive, so 69% of
     nucleus-free fragments at >= 20 are ORPHANS touching no positive nucleated polygon. A
     giant cell's nucleus polygon has little cytoplasm and may not clear the threshold. The

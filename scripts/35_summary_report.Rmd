@@ -531,6 +531,21 @@ described as **groups of chemokine-bright cells with pale nuclei around one dens
 as cytoplasm carved away from a nucleus. That is the same pale-nucleus phenotype step 34 found
 in a third of the bright cells, now seen to be spatially grouped.
 
+**The molecules decide which composites are one cell.** The dots are every CCL17/CCL22 molecule
+in the window (magenta where assigned to a member), with the step-29 density rings. If a
+fragment is a piece of the anchor cell its molecules must be the anchor's cloud, continuous
+across the shared polygon edge; if it is a separate bright cell it carries a cloud of its own
+with a dip between. Both occur in the 24 largest composites, read by eye. A minority are one
+cloud straddling two or three polygons (cid 3882: a single ~10 µm cloud centred on the edge
+between the 60- and 46-count members; cid 4155; cid 3505, where the three bright members are one
+continuous mass of 787 molecules and the cyan "anchor" is a 21-count neighbour with a dense
+nucleus — the partition attached a genuine large pale-nucleus object to a bystander, the anchor
+rule's failure seen directly). The majority are chains of moderately bright cells each with its
+own cloud (cid 2617, 4230, 2367, 4659, 4728), which the area ranking favours. So "contiguous
+beyond chance" is a mixture: some carved cells, mostly grouped bright cells. A per-pair
+statistic — molecule density at the shared edge relative to the two members' peaks, which is
+~1 for a carved cell and dips for two cells — would separate the two classes without the eye.
+
 <div class="verdict-mid">
 **Verdict.** The chemokine-bright polygons are not independent cells scattered through the
 tissue: they form contiguous groups far beyond chance, those groups are large, they hold fewer
