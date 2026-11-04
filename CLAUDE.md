@@ -368,6 +368,19 @@ are closed with evidence.
   cannot drive a neighbour graph that whole-transcriptome variation dominates. **T stays a
   single label; Tfh comes from the per-cell argmax subsets, which is what step 16 already
   does.** `output/19_celltypes/t_subcluster_labels_{IB1,RB1}.csv`.
+- **Per-cell CD45 protein intensity as a CD45-negative (HRS) marker.** Step 30
+  (`scripts/30_script_cd45_rosette.R`) built a "CD45-dim cell among CD45-bright neighbours"
+  score from the vendor's `Mean.CD45`, behind a pre-declared gate, and the GATE FAILED: the
+  per-cell intensity does not separate CD45+ from CD45- lineages -- T/B over fibro/endo AUC
+  **0.52 in IB1 and 0.47 in RB1**, `Max.CD45` no better (0.52 / 0.47), B cells dimmer than
+  fibroblasts, and only Spearman **0.08** with PTPRC RNA. RB1 fails as badly, so it is the
+  per-cell measurement, not IB1's staining defect: in packed lymphoid tissue CD45 sits on
+  shared membranes and a segmented cell's intensity is mostly its neighbours'. The gene
+  results it produced are NOT interpretable and must not be quoted (the score marks cells
+  with FEWER lymphocyte transcripts -- CD3D 0.41x, PTPRC 0.71x top vs bottom quintile).
+  `output/30_cd45_rosette/gate_verdict.csv`, `gate_diagnostics.csv`. The same caution
+  applies to `Mean.Membrane` and every other per-cell stain mean here; a CD45-negative cell
+  can be judged by eye on the step-29 `_gray.png` panels, not by these numbers.
 - **HCA tonsil label transfer.** Disabled 2026-08-06; its labels anti-track marker
   evidence. `celltype_coarse`/`celltype_fine` are not carried past step 03.
 - **Transcript-level proximity of PDCD1 to CD274.** Three null designs built, all three
@@ -509,6 +522,86 @@ figures and the ROI review set. Outputs in `output/27_hotspot_sources/`,
   beyond 800 um -- a lean away from B-cell clusters in general, not from FL, and >= 50
   cells do not share it. `output/29_bright_cells/fl_exclusion.csv`.
 
+- **Radial CD45 (step 31) -- candidates are CD45-dim at the centre, but NOT rosetted.**
+  Segmentation-free: mean CD45 in 5 um rings to 100 um around 500 random >= 50 cells and 500
+  area-matched < 10 controls, read from the full-resolution image, each profile over its own
+  50-100 um mean (`scripts/31_submit_radial_cd45.sh`). Centre (0-5 um) log2 **-0.44
+  [-0.54, -0.34]** vs controls **-0.08 [-0.14, -0.02]** (FOV bootstrap), but no bright ring:
+  10-20 um sits at -0.03 vs +0.02. Sorting both groups onto the candidate k-means shapes, the
+  dim-centre-bright-ring shape is **equally common** (20.7% vs 19.3%), dim-centre-no-ring
+  shapes are 1.8x enriched and the CD45-bright-centre shape 0.55x. And the HRS-leaning score
+  does NOT track dimness (median 0.45-0.56 in the dim shapes vs 0.83-0.87 in the ring and
+  bright-centre shapes), plausibly because IL13/TNFRSF8 leak in from activated T neighbours.
+  **The classes are not discrete**: only k = 5 of k = 2-6 beat the single-Gaussian null, by
+  0.001 in silhouette (0.177 vs 0.176), with silhouettes ~0.18 throughout -- a smear sliced
+  by k-means. The rule as written had no correction for trying five k; next time require
+  the pass at the 99th pct or across adjacent k. `output/31_radial_cd45/`.
+- **The step-31 CD45 shapes do NOT separate the RNA (step 33).** Per cluster, the
+  controls nearest each centroid reproduce the shape almost exactly -- including cluster 1
+  (dim centre, bright ring at 10-20 um; 19% of controls) and cluster 5 (deeply dim centre,
+  ring at 25-35 um) -- so the shapes are things ordinary cells do; only their frequency
+  differs (clusters 4/5 1.8x, cluster 3 0.55x). Clusters 4/5 are simply LARGE cells (area
+  109 um^2 vs 85-94; the DNA dip at 5-10 um is deeper), and cluster 1 is any cell with
+  CD45-bright neighbours. In the step-28 gene framework (obs/exp vs depth-matched < 10
+  cells, FOV bootstrap), **no HRS-leaning, DC or lineage gene is heterogeneous across the
+  five clusters** (label-permutation test, BH q 0.45-0.94): IL13 2.8-4.1x, TNFRSF8 1.7-2.5x,
+  LTA 2.3-4.2x everywhere. The one hit is **BATF3** (q = 0.036): 22-25x in the CD45-RICH
+  contexts (clusters 1, 3) vs 12.6-15.7x in the dim ones (4, 5) -- the opposite of what an
+  HRS-by-morphology reading predicts, and not T leakage (CD3E is < 1 in every cluster and
+  CD3D is highest in cluster 4). Power: 63-140 cells per cluster, intervals ~2-fold wide, so
+  this excludes large RNA differences only; it was decisive for BATF3 because BATF3 is the
+  best-detected gene. `scripts/33_script_cluster_followup.R`, `output/33_cluster_followup/`.
+- **Wide CD45 (step 32): candidates sit in a CD45-dim zone >= 400 um across, and it is
+  mostly LYMPHOID COMPOSITION, not a CD45-negative niche.** Same cells, 25 um bands to 500 um
+  at pyramid level 3, each profile over its own 400-500 um ring
+  (`scripts/32_submit_wide_cd45.sh`). Candidate minus control: **-0.33 log2 at 0-25 um,
+  -0.24 at 100 um, -0.10 at 250 um, 0 by ~400** (FOV bootstrap excludes 0 to 350 um); DNA
+  is slightly HIGHER around candidates (+0.05 to +0.08), so it is not sparse tissue; the
+  defect fraction is identical in both groups (~0.46) and adjusting for it changes nothing.
+  What explains it: the zone is B-rich (19-23% vs 11%), T-rich (19-26% vs 11%) and
+  myeloid-poor (24% vs 31%), decaying over the same ~400 um, and B cells are the dimmest
+  CD45 lineage on this stain (step 30: B 1,209 vs T 1,508 vs myeloid 1,789). Adjusting for
+  the band's B share cuts the deficit to **-0.14 at 25-50 um and -0.08 at 75-250 um**,
+  intervals grazing zero; only the centre band keeps -0.26 (the cell itself, step 31).
+  Consistent with fact 4 (chemokines concentrate in B-dense tissue). Two limits: the own-
+  ring reference forces zero at 400-500, so ">= 400 um" is a floor not a size; and 100 um
+  is plenty for the rosette question (all centre structure is inside 15 um) but any
+  environment question needs this wider design. `output/32_wide_cd45/wide_profile.csv`.
+
+- **Nuclear size / shape (step 34): the candidates' nuclei are PALE-FILLED, not larger, and
+  the RNA runs the other way.** `scripts/34_script_nuclear_size.R` (vendor NucArea /
+  NucAspectRatio / Mean.DAPI, population-wide) + `34_extract_polygons.R` +
+  `34_nuclear_in_polygon.py` (DNA measured inside each cell's vendor polygon, the 1,000
+  step-31 cells) + `34_polygon_qa_sheet.py` (look at them). `output/34_nuclear_size/`.
+  - **Vendor NucArea rises with brightness** (IB1 30.7 -> 50 -> 56 -> 61 -> 70 um^2 across
+    tiers) and is 1.2-1.45x larger in >= 50 cells than < 10 cells of the same cell-area
+    decile -- but the IMAGE, area-matched, finds no dense-nucleus difference (42.7 vs 40.0
+    um^2, ns). The vendor's nuclear segmentation is staining-dependent (nuclear fraction
+    0.78 in RB1 vs 0.54 in IB1 at < 10; Spearman with the image area only 0.57), so do not
+    read its within-IB1 contrasts as nuclear size.
+  - **What IS different, from the picture:** candidate polygons are filled with pale,
+    uniform DNA at ~0.7 of dense-nucleus intensity -- pale fraction 0.82 vs 0.72, DNA CV
+    0.26 vs 0.33, "mostly pale, not dense" 33% vs 13% of controls [diff 0.15, 0.25] -- with
+    fewer dense pixels at the centroid (54% dim vs 36%) and more bright nuclei pressed
+    against the outside (0.46 vs 0.39). Lobation (DNA maxima) and nucleoli (dark holes) do
+    not differ. **By eye the pale-filled polygons cannot be told from focus blur** in a
+    single plane (`qa_polygons_*_pale.png`); vesicular HRS chromatin would look the same.
+  - **The HRS-leaning RNA goes with dense, bright nuclei, not pale ones.** Within brightness
+    band, brightest vs palest Mean.DAPI quintile: IRF4 1.8-2.1x, BATF3 1.4-1.6x, IL13
+    1.3-1.7x (q < 0.01 at 10-49), LYZ 0.36-0.58x; largest vs smallest NucArea quintile:
+    LTA 0.5-0.6x, CCR7 0.6-0.7x, IRF4/BATF3/CD40/CD83 0.6-0.8x, nothing up. Among the 500
+    candidates, pale-fill vs HRS-leaning score rho = -0.19. Third axis in a row (CD45 shape,
+    step 33; nuclear size; DAPI paleness) where morphology-HRS-like and RNA-HRS-like cells
+    are different cells. Either the bright population is two populations (pale large
+    nuclei, RNA-quiet; dense activated nuclei carrying IRF4/BATF3/IL13) or the pale ones
+    are out of focus and lose in-plane transcripts; the data here cannot say which.
+  - **Two gate revisions are recorded in the script header.** The first pre-declared gate
+    (lymphocyte nuclei smaller than myeloid/fibro; NucArea vs the 5-10 um DNA band) was
+    wrong on both premises and was replaced by image agreement BEFORE the full run; and a
+    centroid-anchored image measure was abandoned because candidate centroids sit on dim
+    pixels (725/1,000 flooded). Polygon-bounded measurement is the usable design.
+  - Image reads from scratch are I/O-bound and variable (0.2-2 s per 40 um window).
+
 ### Step 29: per-cell list, figures, ROI review set
 
 - `source_cells.csv.gz`: every source (>= 10) in both samples with canvas px, tier, the
@@ -521,7 +614,10 @@ figures and the ROI review set. Outputs in `output/27_hotspot_sources/`,
   **Rings are CCL17+CCL22 density contours** (sigma 8 um) at 6 / 12 / 24 molecules per
   100 um^2, roughly a 25 / 50 / 100-count cell's own peak, so ring count reads as
   brightness. `roi_png_index.csv` has `own_tx_matches`: the selected cell's assigned
-  molecules must equal its chemo count (all 120 do). This is the G2 review set.
+  molecules must equal its chemo count (all 120 do). This is the G2 review set. Each
+  composite has a `_gray.png` twin (sorts straight after it): DNA / CD45 / Membrane / PanCK
+  as single grey panels over the same fixed ranges, **no** Membrane gain, same rings and
+  crosshair, and a "what to look for" caption line for the pathologist.
 - `ib1_chemokine_tx.csv.gz`: all 1,272,591 IB1 CCL17/CCL22 molecules (54,945 unassigned) in
   canvas px from the flat tx file via `cosmx_local_to_px`; agrees with the per-FOV transcript
   files (4,921 vs 4,918 in a test box).
