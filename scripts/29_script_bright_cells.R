@@ -251,9 +251,9 @@ p2 <- ggplot() +
                 linewidth = .6) +
   geom_point(data = co, aes(combo, oe, colour = kind), size = 2.8) +
   geom_text(data = co, aes(combo, oe_hi, label = sprintf("%.2f", oe), colour = kind),
-            vjust = -0.8, size = 3) +
+            vjust = -0.8, size = 3, show.legend = FALSE) +
   geom_text(data = co, aes(combo, 0.72, label = sprintf("null p = %s", signif(p_null, 2))),
-            colour = MUTED, size = 2.6) +
+            colour = MUTED, size = 2.6, show.legend = FALSE) +
   scale_colour_manual(values = KCOL, name = NULL) +
   scale_x_discrete(labels = function(x) gsub("\\+", " + ", x)) +
   coord_cartesian(ylim = c(0.7, 1.75)) +
@@ -281,9 +281,9 @@ p3 <- ggplot(kl, aes(tier, share, fill = k)) +
   scale_y_continuous(labels = scales::percent, breaks = seq(0, 1, .25)) +
   labs(title = "Share of source cells carrying 0-3 of the HRS-leaning genes, by brightness",
        x = "CCL17+CCL22 counts per cell", y = "Share of source cells",
-       caption = "Tiers with < 50 cells omitted (RB1 has 9 cells >= 50, none >= 100). Detection rises with depth, so this is a description, not a call. Source: output/28_bright_sources/hrs3_k_of_3_by_tier.csv.") +
+       caption = "Tiers with < 50 cells omitted (RB1 has 9 cells >= 50, none >= 100). Detection rises with depth, so this is a description, not a call.\nSource: output/28_bright_sources/hrs3_k_of_3_by_tier.csv.") +
   theme_viz(10)
-sf("fig29_k_of_3_by_tier.png", p3, 8, 4.6)
+sf("fig29_k_of_3_by_tier.png", p3, 9, 4.8)
 
 sc4 <- src[samp == "IB1"]
 sc4[, roi_tier := fcase(chemo >= 100, "high (100+)", chemo >= 50, "medium (50-99)",
@@ -299,11 +299,11 @@ p4 <- ggplot(sc4, aes(roi_tier, hrs_score)) +
   geom_boxplot(width = .12, outlier.shape = NA, colour = "#0b3d7a", fill = NA, linewidth = .35) +
   geom_point(data = cut20, colour = "#0b3d7a", shape = 95, size = 9) +
   labs(title = "HRS-leaning score by brightness tier, with the cut that selects each tier's top 20",
-       subtitle = "Score = mean over IL13, BATF3, TNFRSF8 of log2(observed / expected), expected from depth-matched cells with < 10 chemokine counts",
+       subtitle = "Score = mean over IL13, BATF3, TNFRSF8 of log2(observed / expected),\nexpected from depth-matched cells with < 10 chemokine counts",
        x = NULL, y = "HRS-leaning score (log2)",
-       caption = "Bar: score of the 20th candidate in the *_hrs ROI group (before the renderer drops windows on blank morphology). Source: output/29_bright_cells/source_cells.csv.gz.") +
+       caption = "Bar: score of the 20th candidate in the *_hrs ROI group (before the renderer drops windows on blank morphology).\nSource: output/29_bright_cells/source_cells.csv.gz.") +
   theme_viz(10)
-sf("fig29_hrs_score_by_tier.png", p4, 8, 4.6)
+sf("fig29_hrs_score_by_tier.png", p4, 9, 5)
 
 ## ---- 5. are bright cells excluded from FL neighbourhoods? ----------------------
 ## Bright cells per distance band from the nearest FL-like (kappa-restricted)
