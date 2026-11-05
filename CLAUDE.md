@@ -687,6 +687,21 @@ figures and the ROI review set. Outputs in `output/27_hotspot_sources/`,
   scripts/29_script_bright_cells.R)` then `sbatch --dependency=afterok:$J --mem=16G
   scripts/sbatch/run_python.sh scripts/29_bright_cell_rois.py` (~9 min). Both take `smoke`.
 
+### Step 37: the hotspot blind spot on the image
+
+`scripts/37_hotspot_zoom.py` (`sbatch --mem=16G scripts/sbatch/run_python.sh ...`, 3 min)
+renders `output/37_hotspot_zoom/hotspots_miss_most_bright_cells.png` (1 mm on hotspot
+IB1_55_162, DAPI + molecule density at level 2, clamp 21.1) and `IB1_57_161_zoom.png` (200 um
+at full resolution, two panels: A the same overlay, B the step-35 panel style with every
+polygon, molecule and ring). Both are embedded at the top of section 4 of the step-35 report.
+**`HRS_hotspots_miss_most_bright_cells.png` in the project root is the superseded scratchpad
+preview of the first figure** (gitignored); the step-37 copy is the one to use.
+`IB1_57_161_box_molecules.csv` is the figure's one number: the box holds 305 molecules, 177
+(58%) of them in four >= 20 polygons, 153 in one 90/38/25 three-polygon composite -- so this hotspot DOES contain the
+brightest source in its field, and the blind spot is specifically the ISOLATED bright cell
+(the 112-count cell at the window's left edge is outside every bin). Density bins find
+clusters and grouped sources; they miss most of the isolated ones (fact in step 28 above).
+
 ## Conventions
 
 - Region is the unit of every p-value. 154 neighbourhoods are not 400k independent

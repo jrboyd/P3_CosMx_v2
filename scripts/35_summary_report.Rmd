@@ -56,11 +56,14 @@ R35  <- rd("output/35_giant_cells/rna_nucleus_vs_fragment.csv")
 C36  <- rd("output/36_molecule_dip/cut.csv")
 S36  <- rd("output/36_molecule_dip/summary.csv")
 N36  <- rd("output/36_molecule_dip/pairs_by_nucleus.csv")
+X37  <- rd("output/37_hotspot_zoom/IB1_57_161_box_molecules.csv")
 g <- function(d, ...) { if (is.null(d)) return(NA_real_); v <- d[...]; if (length(v)) v[[1]] else NA_real_ }
 ```
 
 ```{css, echo=FALSE}
-.table { font-size: 0.86em; }
+.table { font-size: 0.86em; width: auto; max-width: 100%; }
+table th, table td { padding: 4px 16px !important; white-space: nowrap; }
+table { margin-left: auto; margin-right: auto; }
 .verdict-ok  { border-left:4px solid #1baf7a; padding:.5em 1em; background:#f2faf6; margin:1em 0; }
 .verdict-no  { border-left:4px solid #eb6834; padding:.5em 1em; background:#fdf4ef; margin:1em 0; }
 .verdict-mid { border-left:4px solid #2a78d6; padding:.5em 1em; background:#f1f6fc; margin:1em 0; }
@@ -173,11 +176,42 @@ fig("fig_11_hotspot_myeloid_vs_dc.png")
 <div class="verdict-mid">
 **Kept, with its scope narrowed.** The hotspots remain the tissue-scale Hodgkin readout — the
 field extent, its decay and its checkpoint profile stand. They are not an enumeration of the
-cells that make the chemokine. A 1 mm view around one hotspot showed dozens of isolated bright
-sources with the three hotspot boxes in the square holding 10% of its chemokine.
+cells that make the chemokine. A 1 mm view around one hotspot (the first figure of the next
+section) shows dozens of isolated bright sources with the three hotspot boxes in the square
+holding 10% of its chemokine.
 </div>
 
 # Bright cells: the per-cell readout (steps 27–29)
+
+```{r fig-37a, out.width="85%"}
+fig("hotspots_miss_most_bright_cells.png")
+```
+
+The blind spot on the image: a 1 mm square of IB1 centred on hotspot IB1_55_162, DAPI in
+grey with the CCL17+CCL22 molecule density over it (Gaussian σ 8 µm, molecules per 100 µm²,
+the same colour clamp as the step-29 review set). The three cyan boxes are the step-11
+hotspot bins in the square; the orange arc is the edge of an FL neighbourhood. Most of the
+bright sources — the near-white spots — sit outside every box, because a box scores pooled
+density over a 100 µm bin and one bright cell is diluted by the ~58 others around it. Note
+that this is raw molecule density, not cp10k, so it also rises wherever cells are packed.
+
+```{r fig-37b, out.width="100%"}
+fig("IB1_57_161_zoom.png")
+```
+
+Zooming in on the seam hotspot in the lower left of that square (IB1_57_161, 200 µm at full
+resolution). **A** repeats the DAPI + density view at the 1 mm figure's scale. **B** is the
+step-35 panel style: the DNA / CD45 / Membrane composite with every vendor polygon outlined
+(warm, with its count, where CCL17+CCL22 ≥ 20; thin orange 10–19; grey otherwise), every
+molecule as a dot coloured by transcript (CCL17 green, CCL22 cyan) and the step-29 density rings at 6 / 12 / 24 molecules per 100 µm². This box does hold the
+brightest source in its field: of the **`r g(X37, , n_molecules_in_box)`** molecules inside
+it, **`r g(X37, , n_in_bright_polygons)` (`r pct(g(X37, , n_in_bright_polygons) / g(X37, , n_molecules_in_box), 0)`)**
+sit in `r g(X37, , n_bright_polygons)` polygons with ≥ 20 counts — three of them touching
+(90 / 38 / 25, one step-35 composite in the lower right of the box, which the molecule cloud
+and the rings draw as a single source) plus a separate 24-count cell. The bin's cp10k then pools that source with the ~40 other cells in the box,
+which is why a composite of this size can clear the cut while an isolated bright cell (the
+112-count cell at the left edge of the window) cannot: the bin scores density, so it finds
+clusters and grouped sources and misses most of the isolated ones.
 
 Dropping the bins and ranking cells by their own CCL17+CCL22 count turned out to be the
 specific readout the hotspots were approximating.

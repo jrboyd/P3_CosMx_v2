@@ -28,6 +28,8 @@ SOURCES = {
     "panels_IB1_thr20_anch.png": "output/35_giant_cells/panels_IB1_thr20_anch.png",
     "fig36_statistic_distributions.png": "output/36_molecule_dip/figures/fig36_statistic_distributions.png",
     "fig36_composite_class.png": "output/36_molecule_dip/figures/fig36_composite_class.png",
+    "hotspots_miss_most_bright_cells.png": "output/37_hotspot_zoom/hotspots_miss_most_bright_cells.png",
+    "IB1_57_161_zoom.png": "output/37_hotspot_zoom/IB1_57_161_zoom.png",
 }
 
 
