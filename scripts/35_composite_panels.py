@@ -14,6 +14,9 @@ to a composite member, violet = assigned to another cell, white = unassigned; pl
 step-29 density contour rings (sigma 8 um; 6 / 12 / 24 molecules per 100 um^2). The
 question they answer: do the fragments sit inside the same molecule cloud as the anchor
 (one cell carved up) or carry clouds of their own with a gap between (separate cells)?
+When step 36's pair classification exists (output/36_molecule_dip/pair_class.csv) each
+touching member pair is joined centroid-to-centroid by a short bar: blue = one cloud
+across the boundary, orange = two clouds; the caption counts them.
 
   python scripts/35_composite_panels.py <OUT> <samp> <thr> <partition: anch|comp> [n]
 """
@@ -46,6 +49,8 @@ OMIT = ("G",)
 WHITE, GREY, AMBER, CYAN = (255, 255, 255), (200, 200, 200), (255, 200, 60), (0, 229, 255)
 MAGENTA, VIOLET = (255, 0, 255), (150, 110, 255)
 TX_TABLE = {"IB1": "output/29_bright_cells/ib1_chemokine_tx.csv.gz"}
+PAIR_CLASS = "output/36_molecule_dip/pair_class.csv"
+BLUE, ORANGE = (40, 120, 255), (255, 140, 0)
 DOT = 3            # half-width of a molecule dot in px (7 px square = 0.84 um)
 RING_T = 3
 
@@ -53,6 +58,20 @@ RING_T = 3
 def dot(img, x, y, rgb):
     h, w = img.shape[:2]
     img[max(y - DOT, 0):min(y + DOT + 1, h), max(x - DOT, 0):min(x + DOT + 1, w)] = rgb
+
+
+def bar(img, x0, y0, x1, y1, rgb, t=3):
+    """thick line between two points, with a dark halo"""
+    n = int(max(abs(x1 - x0), abs(y1 - y0))) + 1
+    xs = np.linspace(x0, x1, n).round().astype(int); ys = np.linspace(y0, y1, n).round().astype(int)
+    h, w = img.shape[:2]
+    for halo in (True, False):                       # halo first, then the bar on top
+        for dx in range(-t - 2, t + 3):
+            for dy in range(-t - 2, t + 3):
+                if (max(abs(dx), abs(dy)) > t) != halo: continue
+                ok = (xs + dx >= 0) & (xs + dx < w) & (ys + dy >= 0) & (ys + dy < h)
+                if halo: img[ys[ok] + dy, xs[ok] + dx] *= 0.3
+                else: img[ys[ok] + dy, xs[ok] + dx] = rgb
 
 
 def rcsv(path):
@@ -79,6 +98,12 @@ def main():
         tx = {"x": np.array([int(float(r["X_px"])) for r in t]), "y": np.array([int(float(r["Y_px"])) for r in t]),
               "fov": np.array([int(float(r["fov"])) for r in t]), "cell": np.array([int(float(r["cell_ID"])) for r in t])}
         print("molecules:", len(tx["x"]), flush=True)
+    pcls = {}
+    if os.path.exists(PAIR_CLASS):
+        for r in rcsv(PAIR_CLASS):
+            if int(r["thr"]) == THR and r["partition"] == PART:
+                pcls[(int(r["fov"]), int(r["a"]), int(r["b"]))] = r["class"]
+        print("pair classes loaded:", len(pcls), flush=True)
     tiles = []
     with tifffile.TiffFile(TIFF) as tf:
         store = tf.series[0].aszarr(); z0 = zarr.open(store, mode="r")["0"]; _, H, W = z0.shape
@@ -129,6 +154,13 @@ def main():
                     for xx, yy in zip(tx["x"][win & (cls == k)] - x0, tx["y"][win & (cls == k)] - y0):
                         dot(img, int(xx), int(yy), (MAGENTA, VIOLET, WHITE)[k])
                 n_in = tuple(int((win & (cls == k)).sum()) for k in (0, 1, 2))
+            n_cls = [0, 0]
+            if pcls:
+                cen = {pid: (np.array(poly[pid])[:, 0].mean() - x0, np.array(poly[pid])[:, 1].mean() - y0) for pid in memset if pid in poly}
+                for (pf, pa, pb), cl in pcls.items():
+                    if pf == fov and pa in cen and pb in cen:
+                        k = 0 if cl == "one_cloud" else 1; n_cls[k] += 1
+                        bar(img, cen[pa][0], cen[pa][1], cen[pb][0], cen[pb][1], BLUE if k == 0 else ORANGE)
             for pid, r in memset.items():
                 c = float(r["chemo"]); g = min(c / 100.0, 1.0)
                 col = CYAN if r["has_nuc"] == "TRUE" else (255, int(120 + 100 * g), int(60 * (1 - g)))
@@ -141,6 +173,8 @@ def main():
                 SAMP, cid, len(mem), area, nnuc, sum(float(r["chemo"]) for r in mem), "  SEAM" if seam else "", "  %d ambiguous" % amb if amb else ""), 8, 8, WHITE, 22)
             if tx is not None:
                 rp.put_text(img, "molecules: %d members / %d other cells / %d unassigned" % n_in, 8, 34, GREY, 20)
+            if pcls:
+                rp.put_text(img, "pairs: %d one cloud / %d two clouds" % tuple(n_cls), 8, 60, WHITE, 20)
             bl = int(round(20 / UM)); img[n - 30:n - 24, n - 20 - bl:n - 20] = 255; rp.put_text(img, "20 um", n - 20 - bl, n - 60, WHITE, 20)
             tiles.append(img)
         store.close()
@@ -159,6 +193,7 @@ def main():
         [("Members outlined thick: cyan = nucleus-bearing member, warm = nucleus-free fragment (yellower = more chemokine); number = CCL17+CCL22 counts, * = seed. Thin orange = other chemokine-positive polygons; thin grey = other cells.", GREY)],
         [("CCL17+CCL22 molecules: magenta = assigned to a member, violet = assigned to another cell, white = unassigned. Rings: molecule density (sigma %g um) at" % r29.SIG_UM, GREY)]
         + [("%g" % lev, rgb) for lev, rgb in r29.LEVELS] + [("per 100 um^2.", GREY)],
+        [("Bars between member centroids (step 36): blue = one molecule cloud continuous across the boundary, orange = two clouds with a saddle between.", GREY)] if pcls else [("", GREY)],
         [("Not identified HRS cells: composites of touching chemokine-positive vendor polygons. See output/35_giant_cells/composite_tests.csv for whether contiguity exceeds the permutation null.", AMBER)]])
     out = np.ascontiguousarray(np.concatenate([sheet, cap], 0).clip(0, 255).round().astype(np.uint8))
     fn = os.path.join(OUT, "panels_%s_thr%d_%s.png" % (SAMP, THR, PART))

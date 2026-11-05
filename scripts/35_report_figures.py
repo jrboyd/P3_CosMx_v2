@@ -26,6 +26,8 @@ SOURCES = {
     "fig35_nuclei_per_member.png": "output/35_giant_cells/figures/fig35_nuclei_per_member.png",
     "fig35_rna_fragment_vs_nucleus.png": "output/35_giant_cells/figures/fig35_rna_fragment_vs_nucleus.png",
     "panels_IB1_thr20_anch.png": "output/35_giant_cells/panels_IB1_thr20_anch.png",
+    "fig36_statistic_distributions.png": "output/36_molecule_dip/figures/fig36_statistic_distributions.png",
+    "fig36_composite_class.png": "output/36_molecule_dip/figures/fig36_composite_class.png",
 }
 
 

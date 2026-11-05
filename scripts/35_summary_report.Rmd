@@ -53,6 +53,9 @@ N34  <- rd("output/34_nuclear_size/nuclear_by_tier.csv")
 T35  <- rd("output/35_giant_cells/composite_tests.csv")
 AM35 <- rd("output/35_giant_cells/ambiguity.csv")
 R35  <- rd("output/35_giant_cells/rna_nucleus_vs_fragment.csv")
+C36  <- rd("output/36_molecule_dip/cut.csv")
+S36  <- rd("output/36_molecule_dip/summary.csv")
+N36  <- rd("output/36_molecule_dip/pairs_by_nucleus.csv")
 g <- function(d, ...) { if (is.null(d)) return(NA_real_); v <- d[...]; if (length(v)) v[[1]] else NA_real_ }
 ```
 
@@ -532,29 +535,76 @@ as cytoplasm carved away from a nucleus. That is the same pale-nucleus phenotype
 in a third of the bright cells, now seen to be spatially grouped.
 
 **The molecules decide which composites are one cell.** The dots are every CCL17/CCL22 molecule
-in the window (magenta where assigned to a member), with the step-29 density rings. If a
-fragment is a piece of the anchor cell its molecules must be the anchor's cloud, continuous
-across the shared polygon edge; if it is a separate bright cell it carries a cloud of its own
-with a dip between. Both occur in the 24 largest composites, read by eye. A minority are one
-cloud straddling two or three polygons (cid 3882: a single ~10 µm cloud centred on the edge
-between the 60- and 46-count members; cid 4155; cid 3505, where the three bright members are one
+in the window (magenta where assigned to a member), with the step-29 density rings, and the bars
+between member centroids carry step 36's verdict for each touching pair (below). If a fragment
+is a piece of the anchor cell its molecules must be the anchor's cloud, continuous across the
+shared polygon edge; if it is a separate bright cell it carries a cloud of its own with a dip
+between. Both occur in the 24 largest composites. cid 3882 is one ~10 µm cloud centred on the
+edge between the 60- and 46-count members; in cid 3505 the three bright members are one
 continuous mass of 787 molecules and the cyan "anchor" is a 21-count neighbour with a dense
 nucleus — the partition attached a genuine large pale-nucleus object to a bystander, the anchor
-rule's failure seen directly). The majority are chains of moderately bright cells each with its
-own cloud (cid 2617, 4230, 2367, 4659, 4728), which the area ranking favours. So "contiguous
-beyond chance" is a mixture: some carved cells, mostly grouped bright cells. A per-pair
-statistic — molecule density at the shared edge relative to the two members' peaks, which is
-~1 for a carved cell and dips for two cells — would separate the two classes without the eye.
+rule's failure seen directly. cid 2617, 4728 and 2367 are chains of moderately bright cells each
+with its own cloud. Read by eye, the sheet looked mostly like chains; the sheet is the 24
+LARGEST composites by area, which favours chains, and scoring every pair gave the opposite
+proportion.
+
+### One cloud or two, for every pair (step 36)
+
+`scripts/36_script_molecule_dip.R` scores every touching member pair. The two members'
+molecules are projected onto the axis between their centroids; a 1 µm Gaussian density of the
+projected positions is read at the polygon boundary (located from the two polygon shapes) and
+divided by the smaller side's peak. One cloud cut by a boundary is unimodal, so that ratio is
+~1; two clouds put a saddle at the boundary and the ratio falls. The cut comes from two
+count-matched references built from isolated bright polygons — one cell cut by a random line,
+and two cells placed polygon-to-polygon — and is the equal-error point between them:
+**`r fmt(g(C36, rule == "dip", cut), 2)`**, misclassifying
+**`r pct(g(C36, rule == "dip", one_cell_misclassified), 0)`** of the one-cell reference and
+**`r pct(g(C36, rule == "dip", two_cell_misclassified), 0)`** of the two-cell reference. (Two earlier
+versions failed on their own references and were replaced before any real pair was read: a
+density sampled along the centroid line, and an unsupervised two-Gaussian mixture.)
+
+```{r fig-36a, out.width="100%"}
+fig("fig36_statistic_distributions.png")
+```
+
+The real pairs are bimodal and the modes are the two references. At ≥ 20 counts in the
+anchored partition, **`r pct(g(S36, unit == "pair" & thr == 20 & partition == "anch" & seed_composites == TRUE, frac_one_cloud), 0)`**
+of the pairs inside seed composites are one cloud, and
+**`r pct(g(S36, unit == "composite" & thr == 20 & partition == "anch" & seed_composites == TRUE, frac_one_cloud), 0)`**
+of those composites are one cloud across every edge, against
+**`r pct(g(S36, unit == "composite" & thr == 20 & partition == "anch" & seed_composites == TRUE, frac_all_separate), 0)`**
+separate across every edge and the rest mixed. The connected-component partition chains more
+(`r pct(g(S36, unit == "composite" & thr == 20 & partition == "comp" & seed_composites == TRUE, frac_one_cloud), 0)` all-one-cloud,
+`r pct(g(S36, unit == "composite" & thr == 20 & partition == "comp" & seed_composites == TRUE, frac_mixed), 0)` mixed),
+which is what a component of several carved cells should look like. The proportion barely moves
+with threshold (10 / 20 / 50) or with the dimmer member's count. Pairs that join a dense-nucleus
+member to a nucleus-free one are one cloud
+**`r pct(g(N36, thr == 20 & pair_type == "nucleus + fragment", frac_one_cloud), 0)`** of the time, against
+**`r pct(g(N36, thr == 20 & pair_type == "two fragments", frac_one_cloud), 0)`** for two nucleus-free
+members touching each other — the nucleus-to-fragment edge, which the giant-cell reading
+predicts to be continuous, is the more continuous one.
+
+```{r fig-36b, out.width="80%"}
+fig("fig36_composite_class.png")
+```
+
+Two cautions on reading "one cloud". The statistic cannot tell a cell whose cytoplasm was
+carved off from a dim neighbour that holds only the bright cell's spill-over: both give a
+monotone profile and a ratio of ~1, and both mean the fragment is **not** an independent
+source. And with ~10% reference error each way, three quarters observed is roughly four fifths
+true, not more.
 
 <div class="verdict-mid">
 **Verdict.** The chemokine-bright polygons are not independent cells scattered through the
 tissue: they form contiguous groups far beyond chance, those groups are large, they hold fewer
 dense nuclei than their size would predict, and the pale-nucleus members carry more of the
-programme than the dense one. The unit the rest of the project calls a "cell" is, for these
-objects, often one member of a group. What the group is — several activated cells with open
-chromatin, a syncytial cluster of HRS cells, or giant cells whose nucleus polygons fell below
-the chemokine threshold — the composites cannot yet say; the orphan fraction and the pale
-nuclei both say where to look next.
+programme than the dense one. The molecules then settle most of what the composites are: about
+three quarters of the touching member pairs are one molecule cloud continuous across the
+polygon boundary, so the typical composite is **one source carved into several polygons**, and
+a quarter are chains of separately bright cells. The unit the rest of the project calls a
+"cell" is, for these objects, usually a fragment. Whether the carved source is an HRS cell —
+and how often the dense-nucleus "anchor" is a bystander next to a pale-nucleus source, which
+cid 3505 shows happens — is what the anchor-rule follow-up and a stain have to answer.
 </div>
 
 # What is and is not established

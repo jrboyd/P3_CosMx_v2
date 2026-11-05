@@ -625,13 +625,31 @@ figures and the ROI review set. Outputs in `output/27_hotspot_sources/`,
     PALE nucleus, so composites are groups of chemokine-bright pale-nucleus cells around one
     dense nucleus -- step 34's pale phenotype, spatially grouped -- not cytoplasm carved off a
     nucleus. Read "fragment" accordingly. **The panels also draw every CCL17/CCL22 molecule**
-    (from step 29's `ib1_chemokine_tx.csv.gz`, IB1 only) with the step-29 density rings, which
-    is what decides whether a composite is one carved cell (one cloud continuous across the
-    polygon edge: cid 3882, 4155, 3505) or a chain of separately bright cells (a cloud per
-    member: cid 2617, 4230, 2367, 4659) -- the 24 largest are mostly the latter. cid 3505 is
-    the anchor rule failing on screen: 787 molecules in three pale-nucleus polygons attached
-    to a 21-count dense-nucleus bystander. A per-edge saddle statistic (density at the shared
-    edge over the members' peaks) would classify this without the eye; not built.
+    (from step 29's `ib1_chemokine_tx.csv.gz`, IB1 only) with the step-29 density rings and a
+    bar per touching pair carrying step 36's class. cid 3505 is the anchor rule failing on
+    screen: 787 molecules in three pale-nucleus polygons attached to a 21-count dense-nucleus
+    bystander. **Do not judge the mixture from the panel sheet** -- it is the 24 LARGEST
+    composites by area, which favours chains, and by eye it read as "mostly chains"; step 36
+    scored every pair and found the opposite.
+
+- **One cloud or two (step 36): ~75% of touching member pairs are ONE molecule cloud across
+  the polygon boundary, so the typical composite is one source carved into polygons.**
+  `scripts/36_script_molecule_dip.R` (~1 min on 8 cores). Statistic: members' molecules
+  projected on the centroid axis, 1 um KDE, density at the polygon boundary (from the polygon
+  support functions) over the smaller side's peak; cut 0.74 = equal-error point between two
+  count-matched references from isolated bright polygons (one cell cut by a random line vs two
+  cells placed polygon-tangent), each misclassified ~10% (3-7% once the dimmer member has
+  >= 35 counts). Real pairs are bimodal on exactly those two modes. Anchored, >= 20, seed
+  composites: 78% of pairs one cloud; 75% of composites one cloud on every edge, 13% separate
+  on every edge, 12% mixed; components chain more (61% / 7% / 32%). Flat across thresholds and
+  count bins. Nucleus-to-fragment edges are MORE continuous (79%) than fragment-to-fragment
+  (65%). **Two earlier statistics failed their own references and must not be revived**: a
+  density sampled along the centroid LINE (sigma 2 um merges clouds 10 um apart; sigma 1 um
+  misses any cloud off the line) and an unsupervised mixtools EM (spurious optima with a
+  near-empty component in a third of the two-cell reference). "One cloud" cannot separate a
+  carved cell from a dim neighbour holding only spill-over -- both mean the fragment is not an
+  independent source. `output/36_molecule_dip/{cut.csv, summary.csv, pair_class.csv,
+  composite_class.csv, pairs_by_nucleus.csv, panel_sheet_pairs.csv}`.
   - **Design gap found, not fixed:** anchors had to be chemokine-positive, so 69% of
     nucleus-free fragments at >= 20 are ORPHANS touching no positive nucleated polygon. A
     giant cell's nucleus polygon has little cytoplasm and may not clear the threshold. The
