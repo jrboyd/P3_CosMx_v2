@@ -1,0 +1,1016 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HRS Cell Review</title>
+<!--
+  P3_CosMx_v2 pathology review app. ONE self-contained file: no network, no libraries.
+  Source of truth: pathology_review_app/app/reviewer.html (see pathology_review_app/README.md).
+  The data bundle (a STORED zip: manifest.json + images/) is chosen at start-up; answers
+  autosave in the browser's local storage and are exported as a CSV.
+-->
+<style>
+:root {
+  --bg: #121417; --panel: #1c1f23; --panel2: #252a30; --line: #363c44;
+  --text: #e8eaed; --muted: #9ba3ad; --accent: #5aa9ff;
+  --yes: #2f9e6e; --no: #c8473f; --unsure: #b8932a; --warn: #f0a33a; --bad: #e0564d;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+  font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+button { font: inherit; color: var(--text); background: var(--panel2); border: 1px solid var(--line);
+  border-radius: 5px; padding: 5px 10px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button:disabled { opacity: .45; cursor: default; border-color: var(--line); }
+button.primary { background: #1f5fa8; border-color: #2a74c9; }
+input[type=text], textarea { font: inherit; color: var(--text); background: #0f1114;
+  border: 1px solid var(--line); border-radius: 5px; padding: 6px 8px; }
+textarea { width: 100%; min-height: 84px; resize: vertical; }
+kbd { font: 12px ui-monospace, Menlo, Consolas, monospace; background: #2c3138; border: 1px solid #444b54;
+  border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; }
+.muted { color: var(--muted); }
+.hidden { display: none !important; }
+
+/* ---------- start screen ---------- */
+#start { max-width: 760px; margin: 0 auto; padding: 32px 16px 48px; }
+#start h1 { font-size: 24px; margin: 0 0 4px; }
+#start .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; margin: 16px 0; }
+#start ol { padding-left: 20px; margin: 6px 0; }
+#start li { margin: 4px 0; }
+#start .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+#readerName { width: 260px; }
+#startMsg { margin-top: 10px; min-height: 1.4em; }
+.err { color: var(--bad); }
+
+/* ---------- review screen ---------- */
+#review { display: flex; flex-direction: column; height: 100vh; }
+#topbar { display: flex; align-items: center; gap: 10px; padding: 6px 10px; background: var(--panel);
+  border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+#topbar .title { font-weight: 600; }
+#topbar .spacer { flex: 1; }
+#saveState { font-size: 13px; }
+#saveState.warn { color: var(--warn); }
+#banner { background: #5a1f1b; color: #ffd9d4; padding: 6px 12px; font-size: 13px; }
+#main { flex: 1; display: flex; min-height: 0; }
+#viewerWrap { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+#viewbar { display: flex; gap: 6px; align-items: center; padding: 6px 8px; background: var(--panel);
+  border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+#viewbar .seg button { border-radius: 0; margin-left: -1px; }
+#viewbar .seg button:first-child { border-radius: 5px 0 0 5px; }
+#viewbar .seg button:last-child { border-radius: 0 5px 5px 0; }
+#viewbar button.on { background: #1f5fa8; border-color: #2a74c9; }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: 0; }
+#viewer { flex: 1; position: relative; background: #000; min-height: 0; cursor: grab; }
+#viewer.dragging { cursor: grabbing; }
+#cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#loading { position: absolute; left: 12px; top: 10px; color: var(--muted); font-size: 13px; }
+#adjust { position: absolute; right: 10px; top: 10px; background: rgba(28,31,35,.96); border: 1px solid var(--line);
+  border-radius: 8px; padding: 10px 12px; width: 270px; z-index: 5; }
+#adjust .ch { display: grid; grid-template-columns: 82px 1fr 40px; gap: 6px; align-items: center; margin: 6px 0; }
+#adjust input[type=range] { width: 100%; }
+
+#side { width: 400px; max-width: 46vw; background: var(--panel); border-left: 1px solid var(--line);
+  display: flex; flex-direction: column; min-height: 0; }
+#sideScroll { flex: 1; overflow-y: auto; padding: 10px 12px 14px; }
+#itemHead { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+#itemHead .big { font-size: 17px; font-weight: 600; }
+#itemStatus { font-size: 12px; }
+.sect { margin: 12px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.q { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; align-items: center; padding: 6px 8px;
+  border: 1px solid transparent; border-radius: 6px; }
+.q.active { border-color: var(--accent); background: rgba(90,169,255,.07); }
+.q.disabled { opacity: .35; pointer-events: none; }
+.q .lab { font-size: 13.5px; }
+.q .hlp { grid-column: 1 / -1; font-size: 12px; color: var(--muted); display: none; }
+.q.active .hlp { display: block; }
+.ans { display: flex; gap: 3px; }
+.ans button { padding: 3px 8px; font-size: 12.5px; min-width: 44px; }
+.ans button.sel-yes { background: var(--yes); border-color: var(--yes); }
+.ans button.sel-no { background: var(--no); border-color: var(--no); }
+.ans button.sel-unsure { background: var(--unsure); border-color: var(--unsure); }
+.ans button .k, #conf button b { font-family: ui-monospace, Menlo, Consolas, monospace; }
+.ans button .k { opacity: .65; font-size: 11px; margin-right: 4px; }
+.navrow { border: 1px solid transparent; border-radius: 6px; padding: 2px 8px 6px; margin: 0 -8px; }
+.navrow.active { border-color: var(--accent); background: rgba(90,169,255,.07); }
+.navrow.disabled { opacity: .35; }
+#conf { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
+#conf button { padding: 6px 2px; font-size: 12px; line-height: 1.2; }
+#conf button b { display: block; font-size: 16px; }
+#conf button.sel { background: #1f5fa8; border-color: #2a74c9; }
+#confHelp { font-size: 12px; margin-top: 4px; }
+.flagrow { display: flex; align-items: center; gap: 8px; margin: 10px 0 6px; }
+#formMsg { min-height: 1.3em; margin: 6px 0; font-size: 13px; }
+#saveRow { display: flex; gap: 6px; padding: 10px 12px; border-top: 1px solid var(--line); background: var(--panel); }
+#saveRow .grow { flex: 1; }
+#strip { display: flex; flex-wrap: wrap; gap: 2px; margin-top: 12px; }
+#strip span { width: 11px; height: 11px; border-radius: 2px; background: #3a3f46; cursor: pointer; }
+#strip span.saved { background: var(--yes); }
+#strip span.draft { background: var(--warn); }
+#strip span.cur { outline: 2px solid #fff; outline-offset: 0; }
+#stripLegend { font-size: 11.5px; margin-top: 4px; }
+
+/* ---------- help overlay ---------- */
+#help { position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 20; display: flex;
+  align-items: flex-start; justify-content: center; overflow-y: auto; padding: 30px 16px; }
+#help .box { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; max-width: 760px;
+  width: 100%; padding: 18px 22px; }
+#help h2 { margin: 0 0 8px; font-size: 20px; }
+#help h3 { margin: 16px 0 4px; font-size: 15px; }
+#help ul { margin: 4px 0; padding-left: 20px; }
+#help table td { padding: 2px 10px 2px 0; vertical-align: top; }
+</style>
+</head>
+<body>
+
+<!-- ======================= START ======================= -->
+<div id="start">
+  <h1>HRS cell review</h1>
+  <div class="muted">CosMx spatial imaging · morphology assessment · runs entirely on this computer, nothing is uploaded</div>
+
+  <div class="card">
+    <div class="row">
+      <label for="readerName"><b>Your name or initials</b></label>
+      <input id="readerName" type="text" autocomplete="off" placeholder="e.g. AV">
+    </div>
+    <div class="row hidden" id="resumeRow" style="margin-top:12px">
+      <button class="primary" id="btnResume"></button>
+      <span class="muted">the bundle you opened last time</span>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button class="primary" id="btnOpenZip">Open data bundle (.zip)…</button>
+      <span class="muted">or</span>
+      <button id="btnOpenDir">Open an unzipped bundle folder…</button>
+    </div>
+    <input id="fileZip" type="file" accept=".zip,application/zip" class="hidden">
+    <input id="fileDir" type="file" webkitdirectory directory multiple class="hidden">
+    <div id="startMsg" class="muted"></div>
+  </div>
+
+  <div class="card">
+    <b>How this works</b>
+    <ol>
+      <li>Open the <b>.zip</b> you were sent (no need to unzip it). Use the same browser every time —
+        <b>Chrome or Edge</b> is recommended.</li>
+      <li>Each screen is one cell, marked by a crosshair. Answer the checklist, give a 1–5 score,
+        add notes if you like, and press <kbd>Enter</kbd> to save and move on.</li>
+      <li>Every answer is <b>saved automatically in this browser</b> as you go. You can close the window
+        and come back later: re-open this file and you continue where you stopped (in Chrome/Edge a
+        <b>Continue with …</b> button reopens the same .zip; elsewhere choose it again).</li>
+      <li>When you are done (or at the end of a session) press <b>Export answers</b>. It downloads a
+        small CSV file named with your initials and the date and time — email that file back.</li>
+    </ol>
+    <div class="muted" style="font-size:13px">Your saved answers live in this browser's storage. They are lost only if
+      you clear browsing data, use a private/incognito window, or switch browser or computer — exporting at the end of each
+      session makes that harmless, and <b>Import a previous export</b> restores it.</div>
+  </div>
+  <div class="card muted" style="font-size:13px">
+    The cells are a mixture of different kinds, shown in a random order, and a few appear twice.
+    Please judge each one on its own; the order and the mixture are part of the design.
+  </div>
+</div>
+
+<!-- ======================= REVIEW ======================= -->
+<div id="review" class="hidden">
+  <div id="topbar">
+    <span class="title">HRS cell review</span>
+    <span class="muted" id="bundleLabel"></span>
+    <span class="spacer"></span>
+    <span id="saveState"></span>
+    <button id="btnExport" class="primary" title="Download every answer saved so far as a CSV">Export answers</button>
+    <button id="btnAutosave" class="hidden" title="Chrome/Edge: also write the CSV to a file of your choice after every save">Autosave to file…</button>
+    <button id="btnImport" title="Merge answers from a CSV exported earlier (e.g. on another computer)">Import a previous export…</button>
+    <button id="btnHelp" title="Help and keyboard shortcuts (?)">Help</button>
+    <input id="fileImport" type="file" accept=".csv,text/csv" class="hidden">
+  </div>
+  <div id="banner" class="hidden"></div>
+  <div id="main">
+    <div id="viewerWrap">
+      <div id="viewbar">
+        <span class="seg" id="modeSeg"></span>
+        <span class="muted" style="margin-left:6px">Composite:</span>
+        <span id="chanToggles"></span>
+        <span class="spacer" style="flex:1"></span>
+        <button id="btnCross" class="on" title="Show/hide the crosshair (X)">Crosshair</button>
+        <button id="btnFit" title="Reset zoom (0, or double-click the image)">Fit</button>
+        <button id="btnAdjust" title="Per-channel brightness">Brightness…</button>
+      </div>
+      <div id="viewer">
+        <canvas id="cv"></canvas>
+        <div id="loading" class="hidden">loading…</div>
+        <div id="adjust" class="hidden"></div>
+      </div>
+    </div>
+    <div id="side">
+      <div id="sideScroll">
+        <div id="itemHead"><span class="big" id="itemTitle"></span><span id="itemStatus" class="muted"></span></div>
+        <div id="gateBox"></div>
+        <div class="sect">Features of the crosshair cell</div>
+        <div id="checklist"></div>
+        <div class="navrow" id="rowConf">
+          <div class="sect" id="confLabel"></div>
+          <div id="conf"></div>
+          <div id="confHelp" class="muted"></div>
+        </div>
+        <div class="navrow flagrow" id="rowFlag"><input type="checkbox" id="flag"><label for="flag">Flag this cell for discussion
+          <span class="muted">(<kbd>F</kbd>, or <kbd>1</kbd> yes / <kbd>2</kbd> no when highlighted)</span></label></div>
+        <div class="navrow" id="rowNotes">
+          <div class="sect">Notes</div>
+          <textarea id="notes" placeholder="Anything else (T or ↓ to get here, Esc or ↑ at the start to leave, Ctrl+Enter to save)"></textarea>
+        </div>
+        <div id="formMsg"></div>
+        <div id="strip"></div>
+        <div id="stripLegend" class="muted">
+          <span class="swatch" style="background:var(--yes)"></span>saved
+          <span class="swatch" style="background:var(--warn);margin-left:8px"></span>started, not saved
+          <span class="swatch" style="background:#3a3f46;margin-left:8px"></span>not seen · click to jump
+        </div>
+      </div>
+      <div id="saveRow">
+        <button id="btnPrev" title="Previous cell (←)">◀ Prev</button>
+        <button id="btnSave" class="primary grow" title="Save and go to the next cell (Enter)">Save &amp; next ▶</button>
+        <button id="btnNext" title="Next cell without saving (→)">Skip ▶</button>
+        <button id="btnNextUnsaved" title="Jump to the first cell not yet saved">First unsaved</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= HELP ======================= -->
+<div id="help" class="hidden"><div class="box">
+  <div style="display:flex;justify-content:space-between;align-items:center">
+    <h2>Help</h2><button id="btnHelpClose">Close (Esc)</button></div>
+  <h3>What you are looking at</h3>
+  <ul>
+    <li>A 150 µm square of a lymph node section from a multiplexed spatial transcriptomics instrument (CosMx),
+      imaged with four immunofluorescence stains. The cell to judge is at the <b>crosshair</b>, in the centre.</li>
+    <li><b>Composite</b>: DNA <span class="swatch" style="background:rgb(238,130,238)"></span>violet,
+      CD45 <span class="swatch" style="background:#f00"></span>red,
+      Membrane (B2M/CD298) <span class="swatch" style="background:#ff0"></span>yellow,
+      PanCK <span class="swatch" style="background:#00f"></span>blue.
+      <b>Grid</b> shows each stain in greyscale side by side; zoom and pan stay in step across the panels.
+      The single-stain buttons show one channel large.</li>
+    <li>There is <b>no H&amp;E</b> and the defining HRS stains (CD30, CD15, PAX5, MUM1 protein) are <b>not on this slide</b>.
+      Judge morphology only, as far as these stains allow. No CD3 either: a rosette here means CD45-bright
+      small lymphocytes, not proven T cells.</li>
+    <li>Display contrast is set per slide, not per image; use <b>Brightness…</b> if a channel is too dim.
+      Part of the material has a known dim-membrane staining defect, so compare membrane brightness with the
+      cell's immediate neighbours only.</li>
+  </ul>
+  <h3>Things worth looking for</h3>
+  <ul>
+    <li>A large CD45-negative or dim cell ringed by CD45-bright small lymphocytes.</li>
+    <li>A large, lobed or multiple nucleus; dark (DNA-poor) nucleoli on the DNA panel; pale, even chromatin.</li>
+    <li>PanCK should be negative.</li>
+    <li>Some fields are slightly out of focus; blur can mimic pale chromatin. If you cannot judge the cell,
+      answer <b>No</b> to "Image adequate" — that is useful information, not a failure.</li>
+  </ul>
+  <h3>Keyboard</h3>
+  <table>
+    <tr><td><kbd>Y</kbd> <kbd>N</kbd> <kbd>U</kbd> or <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></td><td>Yes / No / Unsure for the highlighted question, then the highlight moves down</td></tr>
+    <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>Move the highlight down the whole form: questions → score → flag → notes</td></tr>
+    <tr><td><kbd>1</kbd>–<kbd>5</kbd></td><td>HRS score, while the score row is highlighted (it is highlighted automatically after the last question)</td></tr>
+    <tr><td><kbd>F</kbd></td><td>Flag for discussion (on/off)</td></tr>
+    <tr><td><kbd>T</kbd></td><td>Type a note (<kbd>Esc</kbd>, or <kbd>↑</kbd> at the start of the box, leaves it; <kbd>Ctrl</kbd>+<kbd>Enter</kbd> saves from inside it)</td></tr>
+    <tr><td><kbd>Enter</kbd></td><td>Save and go to the next cell</td></tr>
+    <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>Previous / next cell without saving (unsaved answers are kept as a draft)</td></tr>
+    <tr><td><kbd>V</kbd></td><td>Cycle view: composite → grid → DNA → CD45 → Membrane → PanCK</td></tr>
+    <tr><td><kbd>X</kbd></td><td>Crosshair on/off</td></tr>
+    <tr><td><kbd>0</kbd></td><td>Reset zoom · mouse wheel zooms · drag pans · double-click resets</td></tr>
+    <tr><td><kbd>?</kbd></td><td>This help</td></tr>
+  </table>
+  <h3>Saving</h3>
+  <ul>
+    <li>Each <b>Save</b> is stored immediately in this browser with the date and time. Changing a saved answer later
+      adds a new version; the export keeps every version and marks the latest.</li>
+    <li><b>Export answers</b> downloads everything saved so far. Export at the end of every session and send the newest file.</li>
+    <li>In Chrome or Edge, <b>Autosave to file…</b> additionally rewrites a CSV of your choosing after every save.</li>
+  </ul>
+  <p class="muted" id="helpVersion"></p>
+</div></div>
+
+<script>
+"use strict";
+const APP_VERSION = "1.0.0";
+const LS_PREFIX = "p3hrs:";
+const S = {
+  manifest: null, src: null, reader: "", sessionId: "", sessionStarted: "",
+  store: null, storageOK: true, idx: 0, form: null, active: 0,
+  mode: "composite", chanOn: {}, gains: {}, cross: true,
+  view: { z: 1, cx: 0, cy: 0 }, cache: new Map(), disp: null, dpr: 1,
+  timer: { acc: 0, since: null }, fileHandle: null, dirty: false,
+};
+const $ = id => document.getElementById(id);
+
+// ------------------------------------------------------------------ utilities
+function hex(n) { const a = new Uint8Array(n); crypto.getRandomValues(a);
+  return Array.from(a, b => b.toString(16).padStart(2, "0")).join(""); }
+function localIso(d) {
+  const p = n => String(n).padStart(2, "0"); const off = -d.getTimezoneOffset();
+  const sg = off >= 0 ? "+" : "-"; const ao = Math.abs(off);
+  return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + "T" + p(d.getHours()) + ":" +
+    p(d.getMinutes()) + ":" + p(d.getSeconds()) + sg + p(Math.floor(ao / 60)) + ":" + p(ao % 60);
+}
+function stampForFile(d) {
+  const p = n => String(n).padStart(2, "0");
+  return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + "-" + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); }
+function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); return true; } catch (e) { return false; } }
+function banner(msg) { const b = $("banner"); if (msg) { b.textContent = msg; b.classList.remove("hidden"); } else b.classList.add("hidden"); }
+
+// ------------------------------------------------------------------ data sources
+// A STORED zip read by offset: no library, and only the bytes of the image asked for.
+async function openZip(file) {
+  const tailLen = Math.min(file.size, 65536 + 22);
+  const tail = new DataView(await file.slice(file.size - tailLen).arrayBuffer());
+  let eocd = -1;
+  for (let i = tailLen - 22; i >= 0; i--) if (tail.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) throw new Error("This file is not a zip archive.");
+  const nEnt = tail.getUint16(eocd + 10, true), cdSize = tail.getUint32(eocd + 12, true),
+        cdOff = tail.getUint32(eocd + 16, true);
+  if (cdOff === 0xffffffff || nEnt === 0xffff) throw new Error("This zip uses the Zip64 format, which this app cannot read. Please use the original file you were sent.");
+  const cd = new DataView(await file.slice(cdOff, cdOff + cdSize).arrayBuffer());
+  const dec = new TextDecoder();
+  const ent = new Map();
+  let p = 0;
+  for (let i = 0; i < nEnt; i++) {
+    if (cd.getUint32(p, true) !== 0x02014b50) throw new Error("Damaged zip (central directory).");
+    const method = cd.getUint16(p + 10, true), csize = cd.getUint32(p + 20, true),
+          nl = cd.getUint16(p + 28, true), xl = cd.getUint16(p + 30, true), cl = cd.getUint16(p + 32, true),
+          lho = cd.getUint32(p + 42, true);
+    const name = dec.decode(new Uint8Array(cd.buffer, cd.byteOffset + p + 46, nl));
+    ent.set(name, { method, csize, lho });
+    p += 46 + nl + xl + cl;
+  }
+  return {
+    kind: "zip", name: file.name,
+    has: n => ent.has(n),
+    async get(name, type) {
+      const e = ent.get(name);
+      if (!e) throw new Error("Missing from the bundle: " + name);
+      if (e.method !== 0) throw new Error("The zip has been re-compressed (" + name + "). Please use the original file you were sent.");
+      const lh = new DataView(await file.slice(e.lho, e.lho + 30).arrayBuffer());
+      if (lh.getUint32(0, true) !== 0x04034b50) throw new Error("Damaged zip (local header).");
+      const start = e.lho + 30 + lh.getUint16(26, true) + lh.getUint16(28, true);
+      return file.slice(start, start + e.csize, type || "");
+    },
+  };
+}
+function openDir(files) {
+  const m = new Map();
+  for (const f of files) {
+    const rel = (f.webkitRelativePath || f.name).split("/");
+    for (let k = 0; k < rel.length; k++) m.set(rel.slice(k).join("/"), f);  // tolerate nesting
+  }
+  return {
+    kind: "dir", name: (files[0] && (files[0].webkitRelativePath || "").split("/")[0]) || "folder",
+    has: n => m.has(n),
+    async get(name, type) { const f = m.get(name); if (!f) throw new Error("Missing from the folder: " + name);
+      return type ? f.slice(0, f.size, type) : f; },
+  };
+}
+
+// ------------------------------------------------------------------ start-up
+function startMsg(t, isErr) { const m = $("startMsg"); m.textContent = t; m.className = isErr ? "err" : "muted"; }
+function needReader() {
+  const r = $("readerName").value.trim();
+  if (!r) { startMsg("Please enter your name or initials first.", true); $("readerName").focus(); return null; }
+  return r;
+}
+$("readerName").value = lsGet(LS_PREFIX + "reader") || "";
+
+// Chrome/Edge: the File System Access picker. `id` makes the browser reopen in whichever
+// folder this picker last used (first time: Downloads), and the returned handle is kept in
+// IndexedDB so the next session can reopen the same zip with one "Allow" click and no dialog.
+// Elsewhere (Firefox, Safari) the plain <input type=file> below is used. A page cannot choose
+// the dialog's folder itself; this is as close as browsers allow.
+const PICKER_ID = "p3hrs-bundle";
+function idb() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open("p3hrs", 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("kv");
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+}
+async function idbDo(mode, fn) {
+  const db = await idb();
+  return new Promise((res, rej) => {
+    const tx = db.transaction("kv", mode), q = fn(tx.objectStore("kv"));
+    tx.oncomplete = () => res(q && q.result); tx.onerror = () => rej(tx.error);
+  });
+}
+const kvGet = k => idbDo("readonly", s => s.get(k)).catch(() => null);
+const kvSet = (k, v) => idbDo("readwrite", s => s.put(v, k)).catch(() => null);
+
+$("btnOpenZip").onclick = async () => {
+  if (!needReader()) return;
+  if (!window.showOpenFilePicker) { $("fileZip").click(); return; }
+  let h;
+  try {
+    [h] = await window.showOpenFilePicker({ id: PICKER_ID, startIn: "downloads",
+      types: [{ description: "Review bundle (.zip)", accept: { "application/zip": [".zip"] } }] });
+  } catch (e) {
+    if (e && e.name === "AbortError") return;          // reader cancelled
+    $("fileZip").click(); return;                       // picker unavailable here: plain dialog
+  }
+  await kvSet("bundleHandle", h);
+  await begin(async () => openZip(await h.getFile()));
+};
+(async function offerResume() {
+  if (!window.showOpenFilePicker) return;
+  const h = await kvGet("bundleHandle");
+  if (!h || !h.getFile) return;
+  $("btnResume").textContent = "Continue with " + h.name;
+  $("resumeRow").classList.remove("hidden");
+  $("btnOpenZip").classList.remove("primary");
+  $("btnResume").onclick = async () => {
+    if (!needReader()) return;
+    try {
+      if ((await h.queryPermission({ mode: "read" })) !== "granted" &&
+          (await h.requestPermission({ mode: "read" })) !== "granted") {
+        startMsg("Access was not allowed — use Open data bundle instead.", true); return; }
+      const f = await h.getFile();
+      await begin(async () => openZip(f));
+    } catch (e) {
+      startMsg("Could not reopen " + h.name + " (moved or deleted?). Use Open data bundle to choose it again.", true);
+    }
+  };
+})();
+$("btnOpenDir").onclick = () => { if (needReader()) $("fileDir").click(); };
+$("fileZip").onchange = async e => { const f = e.target.files[0]; e.target.value = "";
+  if (f) await begin(async () => openZip(f)); };
+$("fileDir").onchange = async e => { const fs = Array.from(e.target.files); e.target.value = "";
+  if (fs.length) await begin(async () => openDir(fs)); };
+
+async function begin(mkSrc) {
+  const reader = needReader(); if (!reader) return;
+  startMsg("Opening…");
+  try {
+    const src = await mkSrc();
+    if (!src.has("manifest.json")) throw new Error("No manifest.json in this bundle — is this the right file?");
+    const man = JSON.parse(await (await src.get("manifest.json")).text());
+    if (!man.items || !man.items.length || !man.form) throw new Error("The manifest is incomplete.");
+    S.manifest = man; S.src = src; S.reader = reader;
+    S.storageOK = lsSet(LS_PREFIX + "reader", reader);
+    S.sessionId = hex(6); S.sessionStarted = localIso(new Date());
+    loadStore();
+    initViewerState();
+    buildStaticUI();
+    $("start").classList.add("hidden"); $("review").classList.remove("hidden");
+    if (!S.storageOK) banner("This browser is NOT keeping your answers (private window or storage blocked). " +
+      "Use Export answers often, or reopen in a normal Chrome/Edge window.");
+    sizeCanvas();
+    goTo(firstUnsaved());
+  } catch (err) { console.error(err); startMsg(err.message || String(err), true); }
+}
+
+// ------------------------------------------------------------------ storage
+function storeKey() { return LS_PREFIX + "bundle:" + S.manifest.bundle_id; }
+function loadStore() {
+  let st = null; try { st = JSON.parse(lsGet(storeKey()) || "null"); } catch (e) { st = null; }
+  S.store = st && st.records ? st : { records: [], drafts: {}, exportedN: 0, exportedAt: "" };
+}
+function persist() {
+  const ok = lsSet(storeKey(), JSON.stringify(S.store));
+  if (!ok && S.storageOK) { S.storageOK = false;
+    banner("Could not write to browser storage — your latest answers are NOT safe. Export now."); }
+  updateSaveState();
+}
+function latestRecord(id) {
+  let r = null; for (const x of S.store.records) if (x.item_id === id) r = x; return r;
+}
+function nRevisions(id) { let n = 0; for (const x of S.store.records) if (x.item_id === id) n++; return n; }
+function savedIds() { const s = new Set(); for (const r of S.store.records) s.add(r.item_id); return s; }
+function firstUnsaved() {
+  const s = savedIds(); const i = S.manifest.items.findIndex(it => !s.has(it.id));
+  return i < 0 ? 0 : i;
+}
+function updateSaveState() {
+  const n = savedIds().size, N = S.manifest.items.length, recs = S.store.records.length;
+  const pending = recs - (S.store.exportedN || 0);
+  const el = $("saveState");
+  let t = n + " / " + N + " saved";
+  if (S.fileHandle) t += " · autosaving to " + S.fileHandle.name;
+  else if (pending > 0) t += " · " + pending + " not yet exported";
+  else if (S.store.exportedAt) t += " · exported " + S.store.exportedAt.slice(11, 16);
+  el.textContent = t;
+  el.className = (!S.fileHandle && pending > 0) ? "warn" : "";
+}
+
+// ------------------------------------------------------------------ form
+function emptyForm() {
+  const f = { adequate: "", checks: {}, hrs_confidence: "", flag: false, notes: "" };
+  for (const q of S.manifest.form.checklist) f.checks[q.key] = "";
+  return f;
+}
+function formFromRecord(r) {
+  const f = emptyForm();
+  f.adequate = r.adequate || "";
+  f.hrs_confidence = r.hrs_confidence === "" || r.hrs_confidence == null ? "" : Number(r.hrs_confidence);
+  f.flag = r.flag === "yes"; f.notes = r.notes || "";
+  for (const q of S.manifest.form.checklist) f.checks[q.key] = r[q.key] || "";
+  return f;
+}
+function formsEqual(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
+
+// Highlight rows, top to bottom: 0 = adequacy gate, 1..nQ = checklist, then score, flag,
+// notes. The arrow keys walk all of them; -1 = nothing highlighted.
+const nQ = () => S.manifest.form.checklist.length;
+const ROW = { conf: () => nQ() + 1, flag: () => nQ() + 2, notes: () => nQ() + 3 };
+function rowDisabled(r) { return S.form.adequate === "no" && r >= 1 && r <= ROW.conf(); }
+function moveActive(step) {
+  let r = S.active < 0 ? (step > 0 ? -1 : ROW.notes() + 1) : S.active;
+  do { r += step; } while (r >= 0 && r <= ROW.notes() && rowDisabled(r));
+  S.active = Math.max(0, Math.min(ROW.notes(), r));
+  if (S.active === ROW.notes()) $("notes").focus();
+  renderForm();
+}
+
+function buildStaticUI() {
+  const F = S.manifest.form;
+  $("bundleLabel").textContent = "· " + S.manifest.bundle_id + " · reader " + S.reader;
+  $("helpVersion").textContent = "App " + APP_VERSION + " · bundle " + S.manifest.bundle_id + " · form v" + (F.form_version || "?");
+  // gate + checklist
+  const rows = [F.gate].concat(F.checklist);
+  const mk = (q, i) => {
+    const answers = i === 0 ? F.answers.filter(a => a.value !== "unsure") : F.answers;
+    return '<div class="q" data-row="' + i + '"><span class="lab">' + (i === 0 ? "<b>" + esc(q.label) + "</b>" : esc(q.label)) +
+      '</span><span class="ans">' + answers.map(a => { const d = F.answers.indexOf(a) + 1;
+        return '<button data-row="' + i + '" data-v="' + a.value + '" title="' + esc(a.label) + " (key " +
+          a.key.toUpperCase() + " or " + d + ')"><span class="k">' + d + "</span>" + esc(a.label) + "</button>"; }).join("") +
+      '</span><span class="hlp">' + esc(q.help || "") + "</span></div>";
+  };
+  $("gateBox").innerHTML = mk(rows[0], 0);
+  $("checklist").innerHTML = rows.slice(1).map((q, k) => mk(q, k + 1)).join("");
+  for (const b of document.querySelectorAll(".ans button"))
+    b.onclick = () => answer(+b.dataset.row, b.dataset.v, false);
+  for (const d of document.querySelectorAll(".q"))
+    d.addEventListener("mousedown", () => { S.active = +d.dataset.row; renderForm(); });
+  // clicking anywhere in the score / flag / notes rows moves the highlight there
+  $("rowConf").addEventListener("mousedown", () => { if (!rowDisabled(ROW.conf())) { S.active = ROW.conf(); renderForm(); } });
+  $("rowFlag").addEventListener("mousedown", () => { S.active = ROW.flag(); renderForm(); });
+  $("notes").addEventListener("focus", () => { S.active = ROW.notes(); renderForm(); });
+  // confidence
+  $("confLabel").textContent = F.confidence.label + " (1–5)";
+  $("conf").innerHTML = F.confidence.levels.map(l =>
+    '<button data-v="' + l.value + '" title="Key ' + l.value + '"><b>' + l.value + "</b>" + esc(l.label) + "</button>").join("");
+  for (const b of $("conf").querySelectorAll("button"))
+    b.onclick = () => setConf(+b.dataset.v);
+  $("confHelp").textContent = F.confidence.help || "";
+  $("flag").onchange = () => { S.form.flag = $("flag").checked; changed(); };
+  $("notes").oninput = () => { S.form.notes = $("notes").value; changed(true); };
+  // strip
+  $("strip").innerHTML = S.manifest.items.map((it, i) => '<span data-i="' + i + '" title="Cell ' + (i + 1) + '"></span>').join("");
+  for (const s of $("strip").children) s.onclick = () => goTo(+s.dataset.i);
+  // buttons
+  $("btnSave").onclick = saveAndNext;
+  $("btnPrev").onclick = () => goTo(S.idx - 1);
+  $("btnNext").onclick = () => goTo(S.idx + 1);
+  $("btnNextUnsaved").onclick = () => goTo(firstUnsaved());
+  $("btnExport").onclick = exportCSV;
+  $("btnImport").onclick = () => $("fileImport").click();
+  $("fileImport").onchange = importCSV;
+  $("btnHelp").onclick = () => $("help").classList.remove("hidden");
+  $("btnHelpClose").onclick = () => $("help").classList.add("hidden");
+  if (window.showSaveFilePicker) { $("btnAutosave").classList.remove("hidden"); $("btnAutosave").onclick = pickAutosave; }
+  buildViewbar();
+  updateSaveState();
+}
+
+function answer(row, v, advance) {
+  const F = S.manifest.form;
+  if (row === 0) { if (v === "unsure") return; S.form.adequate = S.form.adequate === v && !advance ? "" : v; }
+  else { if (S.form.adequate === "no") return; const k = F.checklist[row - 1].key;
+    S.form.checks[k] = S.form.checks[k] === v && !advance ? "" : v; }
+  // move the highlight on: next question, then the score; straight to the flag if the gate says No
+  if (row === 0 && S.form.adequate === "no") S.active = ROW.flag();
+  else S.active = row < F.checklist.length ? row + 1 : ROW.conf();
+  changed();
+}
+function setConf(v, fromKey) {
+  if (S.form.adequate === "no") return;
+  S.form.hrs_confidence = !fromKey && S.form.hrs_confidence === v ? "" : v;
+  if (fromKey) S.active = ROW.flag();
+  changed();
+}
+
+function changed(fromNotes) {
+  const it = S.manifest.items[S.idx];
+  const rec = latestRecord(it.id);
+  const base = rec ? formFromRecord(rec) : emptyForm();
+  if (formsEqual(S.form, base)) delete S.store.drafts[it.id];
+  else S.store.drafts[it.id] = S.form;
+  persist();
+  if (!fromNotes) renderForm(); else renderStatus();
+  $("formMsg").textContent = "";
+}
+
+function renderForm() {
+  const F = S.manifest.form, f = S.form, gateNo = f.adequate === "no";
+  for (const d of document.querySelectorAll(".q")) {
+    const row = +d.dataset.row;
+    const val = row === 0 ? f.adequate : f.checks[F.checklist[row - 1].key];
+    d.classList.toggle("active", row === S.active);
+    d.classList.toggle("disabled", row > 0 && gateNo);
+    for (const b of d.querySelectorAll("button")) {
+      b.classList.remove("sel-yes", "sel-no", "sel-unsure");
+      if (b.dataset.v === val) b.classList.add("sel-" + val);
+    }
+  }
+  for (const b of $("conf").querySelectorAll("button")) {
+    b.classList.toggle("sel", +b.dataset.v === f.hrs_confidence); b.disabled = gateNo; }
+  $("rowConf").classList.toggle("active", S.active === ROW.conf());
+  $("rowConf").classList.toggle("disabled", gateNo);
+  $("rowFlag").classList.toggle("active", S.active === ROW.flag());
+  $("rowNotes").classList.toggle("active", S.active === ROW.notes());
+  $("flag").checked = f.flag;
+  const act = S.active < 0 ? null : S.active <= nQ() ? document.querySelector('.q[data-row="' + S.active + '"]')
+    : S.active === ROW.conf() ? $("rowConf") : S.active === ROW.flag() ? $("rowFlag") : $("rowNotes");
+  if (act) act.scrollIntoView({ block: "nearest" });
+  if (document.activeElement !== $("notes")) $("notes").value = f.notes;
+  renderStatus();
+}
+function renderStatus() {
+  const it = S.manifest.items[S.idx], N = S.manifest.items.length;
+  $("itemTitle").textContent = "Cell " + (S.idx + 1) + " of " + N;
+  const rec = latestRecord(it.id), draft = S.store.drafts[it.id];
+  let t = "ID " + it.id + " · ";
+  if (rec) t += "saved " + rec.saved_at.slice(0, 16).replace("T", " ") + (draft ? " · edited, not saved" : "");
+  else t += draft ? "started, not saved" : "not yet saved";
+  $("itemStatus").textContent = t;
+  const saved = savedIds();
+  for (const s of $("strip").children) {
+    const i = +s.dataset.i, id = S.manifest.items[i].id;
+    s.className = (saved.has(id) ? "saved" : (S.store.drafts[id] ? "draft" : "")) + (i === S.idx ? " cur" : "");
+  }
+  $("btnPrev").disabled = S.idx === 0;
+  $("btnNext").disabled = S.idx === N - 1;
+  $("btnSave").textContent = rec && !draft ? "Saved ✓ — next ▶" : (rec ? "Save changes & next ▶" : "Save & next ▶");
+}
+
+function missing() {
+  const F = S.manifest.form, f = S.form, m = [];
+  if (!f.adequate) { m.push("image adequate"); return m; }
+  if (f.adequate === "no") return m;
+  for (const q of F.checklist) if (!f.checks[q.key]) m.push(q.label.toLowerCase());
+  if (f.hrs_confidence === "") m.push("1–5 score");
+  return m;
+}
+
+function saveAndNext() {
+  const it = S.manifest.items[S.idx];
+  const rec = latestRecord(it.id), draft = S.store.drafts[it.id];
+  if (rec && !draft) { goTo(Math.min(S.idx + 1, S.manifest.items.length - 1)); return; }
+  const m = missing();
+  if (m.length) { $("formMsg").innerHTML = '<span class="err">Still needed: ' + esc(m.join(", ")) + "</span>"; return; }
+  const F = S.manifest.form, f = S.form, now = new Date(), gateNo = f.adequate === "no";
+  const r = {
+    record_id: hex(8), bundle_id: S.manifest.bundle_id, item_id: it.id, seq: it.seq, reader: S.reader,
+    session_id: S.sessionId, session_started: S.sessionStarted,
+    saved_at: localIso(now), saved_at_utc: now.toISOString(), revision: nRevisions(it.id) + 1,
+    adequate: f.adequate,
+  };
+  for (const q of F.checklist) r[q.key] = gateNo ? "" : f.checks[q.key];
+  r.hrs_confidence = gateNo ? "" : f.hrs_confidence;
+  r.flag = f.flag ? "yes" : "no";
+  r.notes = f.notes;
+  r.view_seconds = Math.round(timerRead());
+  r.app_version = APP_VERSION; r.form_version = F.form_version || "";
+  S.store.records.push(r);
+  delete S.store.drafts[it.id];
+  persist();
+  autosaveWrite();
+  if (S.idx < S.manifest.items.length - 1) goTo(S.idx + 1);
+  else { renderForm(); $("formMsg").innerHTML = 'Saved. That was the last cell' +
+    (savedIds().size < S.manifest.items.length ? ' — "First unsaved" finds any you skipped.' : ". All done — please export your answers."); }
+}
+
+// ------------------------------------------------------------------ navigation + timing
+function timerRead() { return S.timer.acc + (S.timer.since ? (performance.now() - S.timer.since) / 1000 : 0); }
+document.addEventListener("visibilitychange", () => {
+  if (!S.manifest) return;
+  if (document.hidden) { S.timer.acc = timerRead(); S.timer.since = null; }
+  else S.timer.since = performance.now();
+});
+async function goTo(i) {
+  const N = S.manifest.items.length;
+  i = Math.max(0, Math.min(N - 1, i));
+  S.idx = i;
+  const it = S.manifest.items[i];
+  const rec = latestRecord(it.id), draft = S.store.drafts[it.id];
+  S.form = draft ? JSON.parse(JSON.stringify(draft)) : (rec ? formFromRecord(rec) : emptyForm());
+  S.active = rec && !draft ? -1 : (S.form.adequate ? firstOpenRow() : 0);
+  S.timer = { acc: 0, since: document.hidden ? null : performance.now() };
+  $("formMsg").textContent = "";
+  $("notes").value = S.form.notes;
+  renderForm();
+  fitView();
+  await showItem(it);
+  prefetch(i + 1);
+}
+function firstOpenRow() {
+  if (S.form.adequate === "no") return ROW.flag();
+  const F = S.manifest.form;
+  for (let k = 0; k < F.checklist.length; k++) if (!S.form.checks[F.checklist[k].key]) return k + 1;
+  return S.form.hrs_confidence === "" ? ROW.conf() : ROW.flag();
+}
+
+// ------------------------------------------------------------------ images
+async function decodeGray(blob) {
+  const bmp = await createImageBitmap(blob);
+  const c = document.createElement("canvas"); c.width = bmp.width; c.height = bmp.height;
+  const x = c.getContext("2d", { willReadFrequently: true }); x.drawImage(bmp, 0, 0);
+  const d = x.getImageData(0, 0, c.width, c.height).data;
+  const g = new Uint8Array(c.width * c.height);
+  for (let i = 0, j = 0; i < g.length; i++, j += 4) g[i] = d[j];
+  if (bmp.close) bmp.close();
+  return { g, w: c.width, h: c.height };
+}
+async function loadItem(it) {
+  if (S.cache.has(it.id)) return S.cache.get(it.id);
+  const p = (async () => {
+    const out = { grays: {}, w: 0, h: 0 };
+    await Promise.all(S.manifest.channels.map(async ch => {
+      const r = await decodeGray(await S.src.get(it.files[ch.name], "image/jpeg"));
+      out.grays[ch.name] = r.g; out.w = r.w; out.h = r.h;
+    }));
+    return out;
+  })();
+  S.cache.set(it.id, p);
+  while (S.cache.size > 4) S.cache.delete(S.cache.keys().next().value);
+  try { return await p; } catch (e) { S.cache.delete(it.id); throw e; }
+}
+function prefetch(i) { if (i < S.manifest.items.length) loadItem(S.manifest.items[i]).catch(() => {}); }
+async function showItem(it) {
+  $("loading").classList.remove("hidden");
+  try {
+    const d = await loadItem(it);
+    if (S.manifest.items[S.idx] !== it) return;          // user moved on meanwhile
+    S.disp = { it, data: d, comp: null, gray: {} };
+    rebuildDisplay();
+  } catch (e) { console.error(e); banner("Could not load this cell's images: " + (e.message || e)); }
+  finally { $("loading").classList.add("hidden"); }
+}
+function rebuildDisplay() {
+  if (!S.disp) return;
+  const { data } = S.disp, w = data.w, h = data.h, n = w * h;
+  // composite: additive, per-channel colour x gain
+  const comp = new ImageData(w, h), o = comp.data;
+  const on = S.manifest.channels.filter(ch => S.chanOn[ch.name]);
+  const R = new Float32Array(n), G = new Float32Array(n), B = new Float32Array(n);
+  for (const ch of on) {
+    const g = data.grays[ch.name], k = (ch.gain || 1) * S.gains[ch.name] / 255;
+    const fr = ch.rgb[0] * k, fg = ch.rgb[1] * k, fb = ch.rgb[2] * k;
+    for (let i = 0; i < n; i++) { const v = g[i]; R[i] += v * fr; G[i] += v * fg; B[i] += v * fb; }
+  }
+  for (let i = 0, j = 0; i < n; i++, j += 4) { o[j] = R[i]; o[j + 1] = G[i]; o[j + 2] = B[i]; o[j + 3] = 255; }
+  S.disp.comp = toCanvas(comp);
+  for (const ch of S.manifest.channels) {
+    const g = data.grays[ch.name], k = S.gains[ch.name], im = new ImageData(w, h), q = im.data;
+    for (let i = 0, j = 0; i < n; i++, j += 4) { const v = g[i] * k; q[j] = q[j + 1] = q[j + 2] = v; q[j + 3] = 255; }
+    S.disp.gray[ch.name] = toCanvas(im);
+  }
+  draw();
+}
+function toCanvas(im) { const c = document.createElement("canvas"); c.width = im.width; c.height = im.height;
+  c.getContext("2d").putImageData(im, 0, 0); return c; }
+
+// ------------------------------------------------------------------ viewer
+const MODES = () => ["composite", "grid"].concat(S.manifest.channels.map(c => c.name));
+function initViewerState() {
+  let prefs = {}; try { prefs = JSON.parse(lsGet(LS_PREFIX + "viewprefs") || "{}"); } catch (e) {}
+  for (const ch of S.manifest.channels) {
+    S.chanOn[ch.name] = prefs.on && ch.name in prefs.on ? !!prefs.on[ch.name] : true;
+    S.gains[ch.name] = prefs.gains && prefs.gains[ch.name] ? prefs.gains[ch.name] : 1;
+  }
+  if (prefs.mode && MODES().includes(prefs.mode)) S.mode = prefs.mode;
+}
+function saveViewPrefs() { lsSet(LS_PREFIX + "viewprefs", JSON.stringify({ on: S.chanOn, gains: S.gains, mode: S.mode })); }
+function buildViewbar() {
+  const lab = m => m === "composite" ? "Composite" : m === "grid" ? "Grid" : m;
+  $("modeSeg").innerHTML = MODES().map(m => '<button data-m="' + m + '">' + lab(m) + "</button>").join("");
+  for (const b of $("modeSeg").children) b.onclick = () => setMode(b.dataset.m);
+  $("chanToggles").innerHTML = S.manifest.channels.map(ch =>
+    '<label style="margin-right:8px;cursor:pointer"><input type="checkbox" data-c="' + ch.name + '"' +
+    (S.chanOn[ch.name] ? " checked" : "") + '> <span class="swatch" style="background:rgb(' + ch.rgb.join(",") + ')"></span>' +
+    ch.name + "</label>").join("");
+  for (const c of $("chanToggles").querySelectorAll("input"))
+    c.onchange = () => { S.chanOn[c.dataset.c] = c.checked; saveViewPrefs(); rebuildDisplay(); };
+  $("adjust").innerHTML = '<div style="display:flex;justify-content:space-between"><b>Brightness</b>' +
+    '<span><button id="adjReset">Reset</button> <button id="adjClose">×</button></span></div>' +
+    S.manifest.channels.map(ch => '<div class="ch"><span><span class="swatch" style="background:rgb(' + ch.rgb.join(",") +
+      ')"></span>' + ch.name + '</span><input type="range" min="-2" max="2" step="0.05" data-c="' + ch.name +
+      '" value="' + Math.log2(S.gains[ch.name]) + '"><span data-g="' + ch.name + '">' + S.gains[ch.name].toFixed(2) + "×</span></div>").join("") +
+    '<div class="muted" style="font-size:12px">Display only; does not change what is saved.</div>';
+  for (const r of $("adjust").querySelectorAll("input[type=range]"))
+    r.oninput = () => { const g = Math.pow(2, +r.value); S.gains[r.dataset.c] = g;
+      $("adjust").querySelector('[data-g="' + r.dataset.c + '"]').textContent = g.toFixed(2) + "×";
+      saveViewPrefs(); rebuildDisplay(); };
+  $("adjReset").onclick = () => { for (const ch of S.manifest.channels) S.gains[ch.name] = 1; saveViewPrefs(); buildViewbar(); rebuildDisplay(); };
+  $("adjClose").onclick = () => $("adjust").classList.add("hidden");
+  $("btnAdjust").onclick = () => $("adjust").classList.toggle("hidden");
+  $("btnCross").onclick = () => toggleCross();
+  $("btnFit").onclick = () => { fitView(); draw(); };
+  markMode();
+}
+function markMode() {
+  for (const b of $("modeSeg").children) b.classList.toggle("on", b.dataset.m === S.mode);
+  $("btnCross").classList.toggle("on", S.cross);
+}
+function setMode(m) { S.mode = m; saveViewPrefs(); markMode(); draw(); }
+function toggleCross() { S.cross = !S.cross; markMode(); draw(); }
+function fitView() { const N = S.manifest.window_px; S.view = { z: 1, cx: N / 2, cy: N / 2 }; }
+
+function panels() {
+  const c = $("cv"), W = c.width, H = c.height;
+  if (S.mode === "grid") {
+    const gap = Math.round(4 * S.dpr), pw = (W - gap) / 2, ph = (H - gap) / 2;
+    return S.manifest.channels.slice(0, 4).map((ch, k) => ({
+      x: (k % 2) * (pw + gap), y: Math.floor(k / 2) * (ph + gap), w: pw, h: ph, src: ch.name, label: ch.name }));
+  }
+  return [{ x: 0, y: 0, w: W, h: H, src: S.mode, label: S.mode === "composite" ? "" : S.mode }];
+}
+function scaleOf(p) { return Math.min(p.w, p.h) / S.manifest.window_px * 0.98 * S.view.z; }
+function sizeCanvas() {
+  const c = $("cv"), r = $("viewer").getBoundingClientRect();
+  S.dpr = window.devicePixelRatio || 1;
+  c.width = Math.max(1, Math.round(r.width * S.dpr)); c.height = Math.max(1, Math.round(r.height * S.dpr));
+  draw();
+}
+new ResizeObserver(() => { if (S.manifest) sizeCanvas(); }).observe($("viewer"));
+
+function draw() {
+  const c = $("cv"), ctx = c.getContext("2d");
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = "#000"; ctx.fillRect(0, 0, c.width, c.height);
+  if (!S.disp || !S.disp.comp) return;
+  const um = S.manifest.um_per_px, it = S.disp.it, d = S.dpr;
+  for (const p of panels()) {
+    const s = scaleOf(p), ox = p.x + p.w / 2 - S.view.cx * s, oy = p.y + p.h / 2 - S.view.cy * s;
+    const src = p.src === "composite" ? S.disp.comp : S.disp.gray[p.src];
+    ctx.save(); ctx.beginPath(); ctx.rect(p.x, p.y, p.w, p.h); ctx.clip();
+    ctx.imageSmoothingEnabled = s < 3;
+    ctx.setTransform(s, 0, 0, s, ox, oy); ctx.drawImage(src, 0, 0);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (S.cross) {   // arms from 7 to 14 um around the centroid, gap left open over the cell
+      const x = ox + it.cx * s, y = oy + it.cy * s;
+      const r1 = Math.max(7 / um * s, 10 * d), r2 = Math.max(14 / um * s, 22 * d);
+      const seg = [[x + r1, y, x + r2, y], [x - r1, y, x - r2, y], [x, y + r1, x, y + r2], [x, y - r1, x, y - r2]];
+      for (const [lw, col] of [[5 * d, "rgba(0,0,0,.8)"], [2.2 * d, "#fff"]]) {
+        ctx.lineWidth = lw; ctx.strokeStyle = col; ctx.beginPath();
+        for (const [a, b, e, f] of seg) { ctx.moveTo(a, b); ctx.lineTo(e, f); } ctx.stroke(); }
+    }
+    // scale bar: a round length 60-160 screen px long
+    const pxPerUm = s / um; let L = 1;
+    for (const c2 of [1, 2, 5, 10, 20, 50, 100]) { L = c2; if (c2 * pxPerUm >= 60 * d) break; }
+    const bw = L * pxPerUm, bx = p.x + p.w - bw - 16 * d, by = p.y + p.h - 18 * d;
+    ctx.fillStyle = "rgba(0,0,0,.55)"; ctx.fillRect(bx - 8 * d, by - 22 * d, bw + 16 * d, 32 * d);
+    ctx.fillStyle = "#fff"; ctx.fillRect(bx, by, bw, 4 * d);
+    ctx.font = (12 * d) + "px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillText(L + " µm", bx + bw / 2, by - 6 * d);
+    if (p.label) { ctx.textAlign = "left"; ctx.font = "600 " + (13 * d) + "px system-ui, sans-serif";
+      ctx.fillStyle = "rgba(0,0,0,.6)"; ctx.fillRect(p.x + 6 * d, p.y + 6 * d, ctx.measureText(p.label).width + 12 * d, 22 * d);
+      ctx.fillStyle = "#fff"; ctx.fillText(p.label, p.x + 12 * d, p.y + 22 * d); }
+    ctx.restore();
+  }
+}
+function panelAt(mx, my) { for (const p of panels()) if (mx >= p.x && mx < p.x + p.w && my >= p.y && my < p.y + p.h) return p; return null; }
+(function wireMouse() {
+  const v = $("viewer"); let drag = null;
+  v.addEventListener("wheel", e => {
+    if (!S.disp) return; e.preventDefault();
+    const r = $("cv").getBoundingClientRect(), mx = (e.clientX - r.left) * S.dpr, my = (e.clientY - r.top) * S.dpr;
+    const p = panelAt(mx, my); if (!p) return;
+    const s0 = scaleOf(p), ix = S.view.cx + (mx - (p.x + p.w / 2)) / s0, iy = S.view.cy + (my - (p.y + p.h / 2)) / s0;
+    S.view.z = Math.max(0.5, Math.min(24, S.view.z * Math.exp(-e.deltaY * (e.deltaMode ? 0.05 : 0.0015))));
+    const s1 = scaleOf(p);
+    S.view.cx = ix - (mx - (p.x + p.w / 2)) / s1; S.view.cy = iy - (my - (p.y + p.h / 2)) / s1;
+    draw();
+  }, { passive: false });
+  v.addEventListener("mousedown", e => { if (e.button !== 0 || e.target.closest("#adjust")) return;
+    const r = $("cv").getBoundingClientRect(), p = panelAt((e.clientX - r.left) * S.dpr, (e.clientY - r.top) * S.dpr);
+    if (!p) return; drag = { x: e.clientX, y: e.clientY, s: scaleOf(p) }; v.classList.add("dragging"); });
+  window.addEventListener("mousemove", e => { if (!drag) return;
+    S.view.cx -= (e.clientX - drag.x) * S.dpr / drag.s; S.view.cy -= (e.clientY - drag.y) * S.dpr / drag.s;
+    drag.x = e.clientX; drag.y = e.clientY; draw(); });
+  window.addEventListener("mouseup", () => { drag = null; v.classList.remove("dragging"); });
+  v.addEventListener("dblclick", e => { if (e.target.closest("#adjust")) return; fitView(); draw(); });
+})();
+
+// ------------------------------------------------------------------ keyboard
+document.addEventListener("keydown", e => {
+  if (!S.manifest || $("review").classList.contains("hidden")) return;
+  if (!$("help").classList.contains("hidden")) { if (e.key === "Escape" || e.key === "?") $("help").classList.add("hidden"); return; }
+  const t = e.target, typing = t.tagName === "TEXTAREA" || (t.tagName === "INPUT" && t.type === "text");
+  if (typing) {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); t.blur(); saveAndNext(); }
+    else if (e.key === "Escape") { t.blur(); S.active = ROW.flag(); renderForm(); }
+    else if (e.key === "ArrowUp" && t.id === "notes" && t.selectionStart === 0 && t.selectionEnd === 0) {
+      e.preventDefault(); t.blur(); S.active = ROW.flag(); renderForm(); }
+    return;
+  }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const F = S.manifest.form, k = e.key, digit = /^[1-9]$/.test(k) ? +k : 0;
+  const onQ = S.active >= 0 && S.active <= nQ(), onFlag = S.active === ROW.flag();
+  // Y/N/U, or 1/2/3, answer the highlighted question (or set the flag when it is highlighted)
+  let ans = F.answers.find(a => a.key === k.toLowerCase());
+  if (!ans && digit && digit <= F.answers.length && (onQ || onFlag)) ans = F.answers[digit - 1];
+  if (ans && onQ) { answer(S.active, ans.value, true); e.preventDefault(); return; }
+  if (ans && onFlag && ans.value !== "unsure") { S.form.flag = ans.value === "yes"; changed(); e.preventDefault(); return; }
+  // the score takes digits only while its row is highlighted; elsewhere a stray digit does nothing
+  if (digit && S.active === ROW.conf() && F.confidence.levels.some(l => l.value === digit)) {
+    setConf(digit, true); e.preventDefault(); return; }
+  if (ans || digit) { e.preventDefault(); return; }        // nothing highlighted that takes this key
+  if (k === "ArrowDown") { e.preventDefault(); moveActive(1); }
+  else if (k === "ArrowUp") { e.preventDefault(); moveActive(-1); }
+  else if (k === "f" || k === "F") { S.form.flag = !S.form.flag; changed(); }
+  else if (k === "Enter") { e.preventDefault(); if (t.tagName === "BUTTON") t.blur(); saveAndNext(); }
+  else if (k === "ArrowRight") goTo(S.idx + 1);
+  else if (k === "ArrowLeft") goTo(S.idx - 1);
+  else if (k === "x" || k === "X") toggleCross();
+  else if (k === "v" || k === "V") { const m = MODES(); setMode(m[(m.indexOf(S.mode) + 1) % m.length]); }
+  else if (k === "0") { fitView(); draw(); }
+  else if (k === "t" || k === "T") { e.preventDefault(); $("notes").focus(); }
+  else if (k === "?") $("help").classList.remove("hidden");
+});
+window.addEventListener("beforeunload", e => {
+  if (!S.manifest || S.fileHandle) return;
+  if (S.store.records.length > (S.store.exportedN || 0)) { e.preventDefault(); e.returnValue = ""; }
+});
+
+// ------------------------------------------------------------------ CSV export / import / autosave
+function columns() {
+  return ["bundle_id", "item_id", "seq", "reader", "session_id", "session_started", "saved_at", "saved_at_utc",
+    "revision", "is_latest", "adequate"].concat(S.manifest.form.checklist.map(q => q.key),
+    ["hrs_confidence", "flag", "notes", "view_seconds", "app_version", "form_version", "record_id"]);
+}
+function csvCell(v) { v = v == null ? "" : String(v); return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+function buildCSV() {
+  const cols = columns(), recs = S.store.records.slice().sort((a, b) => a.saved_at_utc < b.saved_at_utc ? -1 : 1);
+  const last = new Map(); for (const r of recs) last.set(r.item_id, r.record_id);
+  const lines = [cols.join(",")];
+  for (const r of recs) lines.push(cols.map(c => csvCell(c === "is_latest" ? (last.get(r.item_id) === r.record_id ? "yes" : "no") : r[c])).join(","));
+  return "﻿" + lines.join("\r\n") + "\r\n";        // BOM so Excel reads UTF-8 notes correctly
+}
+function exportName() {
+  const rd = S.reader.replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 24) || "reader";
+  return "HRS_review_" + rd + "_" + S.manifest.bundle_id + "_" + stampForFile(new Date()) + ".csv";
+}
+function exportCSV() {
+  if (!S.store.records.length) { $("formMsg").innerHTML = '<span class="err">Nothing saved yet to export.</span>'; return; }
+  const blob = new Blob([buildCSV()], { type: "text/csv" }), a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = exportName(); document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+  S.store.exportedN = S.store.records.length; S.store.exportedAt = localIso(new Date());
+  persist();
+  $("formMsg").innerHTML = "Exported <b>" + esc(a.download) + "</b> to your Downloads folder — email that file back.";
+}
+async function pickAutosave() {
+  try {
+    S.fileHandle = await window.showSaveFilePicker({ suggestedName: exportName(),
+      types: [{ description: "CSV", accept: { "text/csv": [".csv"] } }] });
+    await autosaveWrite(); updateSaveState();
+  } catch (e) { if (e && e.name !== "AbortError") banner("Autosave to file is not available here: " + (e.message || e)); }
+}
+async function autosaveWrite() {
+  if (!S.fileHandle) return;
+  try { const w = await S.fileHandle.createWritable(); await w.write(buildCSV()); await w.close();
+    S.store.exportedN = S.store.records.length; S.store.exportedAt = localIso(new Date()); persist(); }
+  catch (e) { S.fileHandle = null; updateSaveState();
+    banner("Autosave to file stopped (" + (e.message || e) + "). Answers are still in the browser; use Export answers."); }
+}
+function parseCSV(text) {
+  text = text.replace(/^﻿/, "");
+  const rows = []; let row = [], cell = "", q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) { if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; }
+    else if (ch === '"') q = true;
+    else if (ch === ",") { row.push(cell); cell = ""; }
+    else if (ch === "\n" || ch === "\r") { if (ch === "\r" && text[i + 1] === "\n") i++; row.push(cell); rows.push(row); row = []; cell = ""; }
+    else cell += ch;
+  }
+  if (cell !== "" || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter(r => r.length > 1 || r[0] !== "");
+}
+async function importCSV(e) {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  try {
+    const rows = parseCSV(await f.text()), hdr = rows[0];
+    if (!hdr || !hdr.includes("record_id") || !hdr.includes("item_id")) throw new Error("This does not look like an export from this app.");
+    const have = new Set(S.store.records.map(r => r.record_id)), ids = new Set(S.manifest.items.map(it => it.id));
+    let added = 0, other = 0;
+    for (const r of rows.slice(1)) {
+      const o = {}; hdr.forEach((h, k) => o[h] = r[k] == null ? "" : r[k]);
+      if (o.bundle_id !== S.manifest.bundle_id || !ids.has(o.item_id)) { other++; continue; }
+      if (have.has(o.record_id)) continue;
+      delete o.is_latest; S.store.records.push(o); have.add(o.record_id); added++;
+    }
+    S.store.records.sort((a, b) => a.saved_at_utc < b.saved_at_utc ? -1 : 1);
+    persist(); goTo(S.idx);
+    $("formMsg").innerHTML = "Imported " + added + " saved answer(s)" + (other ? "; skipped " + other + " from a different bundle" : "") + ".";
+  } catch (err) { $("formMsg").innerHTML = '<span class="err">' + esc(err.message || err) + "</span>"; }
+}
+</script>
+</body>
+</html>

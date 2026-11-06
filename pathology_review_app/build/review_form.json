@@ -1,0 +1,89 @@
+{
+  "form_version": "2",
+  "gate": {
+    "key": "adequate",
+    "label": "Image adequate to judge this cell",
+    "help": "In focus, tissue present, no staining or fixation artefact over the cell. If No, the rest of the form is skipped and only notes are kept."
+  },
+  "checklist": [
+    {
+      "key": "single_cell",
+      "label": "Crosshair sits on one identifiable cell",
+      "help": "Not between cells, not on a clump where you cannot say which cell is meant."
+    },
+    {
+      "key": "large_cell",
+      "label": "Large cell",
+      "help": "Roughly 3x or more the diameter of the small lymphocytes around it."
+    },
+    {
+      "key": "multinuc",
+      "label": "Multinucleated or multilobed nucleus",
+      "help": "Two or more nuclei or lobes (DNA panel), e.g. a binucleate mirror-image form."
+    },
+    {
+      "key": "nucleolus",
+      "label": "Prominent nucleolus",
+      "help": "Large dark (DNA-poor) round hole inside the nucleus on the DNA panel."
+    },
+    {
+      "key": "pale_chrom",
+      "label": "Pale / vesicular chromatin",
+      "help": "Nucleus paler and more even than its neighbours. Blur can mimic this; say No/Unsure if the field is soft."
+    },
+    {
+      "key": "cd45_dim",
+      "label": "CD45-negative or dim relative to neighbours",
+      "help": "Judge against the cells touching it, not the whole field; CD45 sits on shared membranes in packed tissue."
+    },
+    {
+      "key": "rosette",
+      "label": "Rosette of CD45-bright small lymphocytes",
+      "help": "A ring of small CD45-bright cells hugging the cell. There is no CD3 stain on this slide, so this is a lymphocyte rosette, not a confirmed T-cell one."
+    }
+  ],
+  "answers": [
+    {
+      "value": "yes",
+      "label": "Yes",
+      "key": "y"
+    },
+    {
+      "value": "no",
+      "label": "No",
+      "key": "n"
+    },
+    {
+      "value": "unsure",
+      "label": "Unsure",
+      "key": "u"
+    }
+  ],
+  "confidence": {
+    "key": "hrs_confidence",
+    "label": "Morphology consistent with an HRS cell",
+    "levels": [
+      {
+        "value": 1,
+        "label": "Not HRS"
+      },
+      {
+        "value": 2,
+        "label": "Probably not"
+      },
+      {
+        "value": 3,
+        "label": "Indeterminate"
+      },
+      {
+        "value": 4,
+        "label": "Probably"
+      },
+      {
+        "value": 5,
+        "label": "Definitely HRS-compatible"
+      }
+    ],
+    "help": "Morphology only: the defining HRS stains (CD30, CD15, PAX5, MUM1 protein) are not on this slide, so 5 means 'as HRS-like as these four stains can show'. Use the adequacy question, not 3, for images you cannot read."
+  }
+}
