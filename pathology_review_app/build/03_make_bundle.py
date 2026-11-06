@@ -136,7 +136,7 @@ def main():
     os.makedirs(os.path.join(ROOT, "keys"), exist_ok=True)
     kpath = os.path.join(ROOT, "keys", bundle_id + "_key.csv")
     kcols = ["item_id", "seq", "repeat_of", "cell_id", "samp", "kind", "stratum", "src_group",
-             "chemo", "hrs_score", "k3", "Area.um2", "depth0", "matched_to", "fov_id",
+             "chemo", "hrs_score", "k3", "Area.um2", "depth0", "matched_to", "match_dist", "fov_id",
              "X_px", "Y_px", "x0", "y0", "cx_win", "cy_win", "blank_frac"]
     with open(kpath, "w", newline="") as fh:
         wr = csv.DictWriter(fh, fieldnames=kcols, extrasaction="ignore")

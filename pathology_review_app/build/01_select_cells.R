@@ -18,7 +18,7 @@
 ##                   the sources came from), each matched to a randomly chosen candidate
 ##                   of its own sample on area (+/-10%) and depth0 (+/-15%). Without them
 ##                   a "yes" rate has no reference (step 31's design).
-##   range cells     16 random matched-tier cells per slide; the renderer sets each
+##   range cells     256 random matched-tier cells per slide (own seed); the renderer sets each
 ##                   slide's display range from their windows, so the range does not
 ##                   depend on which cells were reviewed or on the bundle size.
 ##
@@ -43,9 +43,13 @@ src <- fread("output/29_bright_cells/source_cells.csv.gz")
 cols <- c("cell_id", "samp", "fov_id", "X_px", "Y_px", "chemo", "hrs_score", "k3",
           "Area.um2", "depth0")
 
-## ---- IB1 candidates: the step-29 ROI cells, in slot order ------------------------
-idx <- fread("output/29_bright_cells/roi_png/roi_png_index.csv")
-ib1 <- merge(idx[, .(cell_id, src_group = group, priority = slot)], src[, ..cols], by = "cell_id")
+## ---- IB1 candidates: step 29's ranked candidate lists (60 per group) ---------------
+## In rank order, so the first cells to pass the renderer's QC are the step-29 ROI cells
+## (step 29 kept the first 20 that passed its blank rule); the rest are backups for cells the
+## renderer drops because their window overlaps one already kept -- bright cells cluster
+## (step 35), and without backups the full bundle came out 14 cells short.
+idx <- fread("output/29_bright_cells/roi_candidates.csv")
+ib1 <- merge(idx[, .(cell_id, src_group = group, priority = rank)], src[, ..cols], by = "cell_id")
 stopifnot(nrow(ib1) == nrow(idx), all(ib1$samp == "IB1"))
 ib1[, `:=`(kind = "candidate", stratum = paste0("IB1_", src_group), need = DESIGN$ib1_per_group)]
 
@@ -82,25 +86,39 @@ match_controls <- function(s, n_need) {
   out <- vector("list", n_need * BACKUP)
   for (i in seq_along(out)) {
     r <- ref[sample(.N, 1)]
-    ok <- pool[abs(log(Area.um2 / r$Area.um2)) < 0.10 & abs(log(depth0 / r$depth0)) < 0.15 &
-               !cell_id %in% got]
-    if (!nrow(ok)) stop("no control match for ", r$cell_id)
-    c1 <- ok[sample(.N, 1)]
+    free <- pool[!cell_id %in% got]
+    free[, dist := sqrt((log(Area.um2 / r$Area.um2) / 0.10)^2 + (log(depth0 / r$depth0) / 0.15)^2)]
+    ## random cell inside the +/-10% area, +/-15% depth box; if the box is empty (an extreme
+    ## candidate), the nearest cell in those scaled units. match_dist records which.
+    ok <- free[abs(log(Area.um2 / r$Area.um2)) < 0.10 & abs(log(depth0 / r$depth0)) < 0.15]
+    c1 <- if (nrow(ok)) ok[sample(.N, 1)] else free[which.min(dist)]
+    c1[, in_box := nrow(ok) > 0]
     got <- c(got, c1$cell_id)
     out[[i]] <- c1[, .(cell_id, samp, fov_id, chemo = chemo_ct, Area.um2, depth0,
-                       matched_to = r$cell_id)]
+                       matched_to = r$cell_id, match_dist = round(dist, 2), in_box)]
   }
   d <- rbindlist(out)
   d[, `:=`(kind = "control", stratum = paste0(s, "_control"), src_group = paste0(s, "_control"),
            need = n_need, priority = seq_len(.N), hrs_score = NA_real_, k3 = NA_integer_)]
 }
 ctrl <- rbind(match_controls("IB1", DESIGN$ib1_ctrl), match_controls("RB1", DESIGN$rb1_ctrl))
+cat(sprintf("controls outside the +/-10%% area, +/-15%% depth box (nearest used): %d of %d\n",
+            sum(!ctrl$in_box), nrow(ctrl)))
+ctrl[, in_box := NULL]
 
-rng <- reg[, .SD[sample(.N, 16)], by = samp][, .(cell_id, samp, fov_id, chemo = chemo_ct,
-                                                 Area.um2, depth0)]
+## Range cells get their OWN seed, re-set here: drawn after the controls on the shared
+## stream, they changed with bundle size (the control count differs), and the display range
+## changed with them (IB1 DNA upper limit 8580 in the test bundle vs 5420 in full). 256 per
+## slide: the spread is BETWEEN locations (RB1 at 64 windows still split-half 63% apart on
+## PanCK, 19% on CD45), so many small patches beat a few large windows.
+N_RANGE <- 256L
+set.seed(3801)
+setorder(reg, samp, cell_id)
+rng <- reg[, .SD[sample(.N, N_RANGE)], by = samp][, .(cell_id, samp, fov_id, chemo = chemo_ct,
+                                                           Area.um2, depth0)]
 rng[, `:=`(kind = "range", stratum = paste0(samp, "_range"), src_group = NA_character_,
-           need = 16L, priority = seq_len(.N), hrs_score = NA_real_, k3 = NA_integer_,
-           matched_to = NA_character_), by = samp]
+           need = N_RANGE, priority = seq_len(.N), hrs_score = NA_real_, k3 = NA_integer_,
+           matched_to = NA_character_, match_dist = NA_real_), by = samp]
 
 ## canvas px from FOV-local centroids (the analytic transform; CLAUDE.md "Images")
 nc <- rbind(ctrl, rng, fill = TRUE)
@@ -115,7 +133,7 @@ xy <- rbindlist(lapply(names(SLIDE), function(s) {
 nc <- merge(nc, xy, by = "cell_id")
 stopifnot(nrow(nc) == nrow(ctrl) + nrow(rng), !anyNA(nc$X_px))
 
-cand[, matched_to := NA_character_]
+cand[, `:=`(matched_to = NA_character_, match_dist = NA_real_)]
 sel <- rbind(cand, nc, use.names = TRUE)
 setorder(sel, samp, kind, stratum, priority)
 fwrite(sel, file.path(OUT, "selection.csv"))

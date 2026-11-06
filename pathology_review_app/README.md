@@ -40,12 +40,15 @@ When CSVs come back: drop them in `returns/` and run
   tiles, and RB1 has no outlines, so either would unblind at a glance. The crosshair and
   scale bar are drawn by the app as overlays the reader can hide.
 - **Controls** are chemo < 10, defect-free, matched-tier cells of the same sample, each
-  matched to a candidate on area (±10%) and depth0 (±15%). Without them a "yes" rate has no
+  matched to a candidate on area (±10%) and depth0 (±15%); for an extreme candidate with
+  nothing in that box, the nearest cell (`match_dist` in the key, box-scaled units). Without them a "yes" rate has no
   reference.
 - **RB1** contributes candidates (its 9 cells >= 50, plus 10-49 by top score and at random)
   and its own matched controls: bright cells from a section with no Hodgkin component.
-- **Per-slide display range** (30th/99th pct of non-zero pixels over 16 random cells per
-  slide, fixed per slide, independent of the bundle). A shared range would make IB1 (dim
+- **Per-slide display range** (30th/99th pct of non-zero pixels in 48 um patches around 256
+  random cells per slide, drawn on their own seed, so identical in every bundle). Fewer
+  locations were unstable: 16 windows moved IB1's DNA limit 5420 vs 8580 between bundles,
+  and 64 still left RB1 PanCK 63% / CD45 19% apart split-half; 256 gives 1-9%. A shared range would make IB1 (dim
   membrane defect) recognisable and harder to read. The reader can still adjust brightness
   per channel in the app; that is display-only and not recorded.
 - **Order**: stratified interleave, seeded, so every stretch mixes all strata and reading
@@ -66,6 +69,10 @@ in Chrome/Edge an optional "Autosave to file" that rewrites a CSV after every sa
 revision 2, and the export keeps every revision with an `is_latest` flag. Each record has
 `session_id` (one per app opening), `saved_at` (local time with offset) and `saved_at_utc`
 for batch identification.
+
+The Chrome/Edge-only paths (remembered picker folder, "Continue with ..." reopening the last
+bundle via a stored file handle) were checked by hand in both browsers on 2026-11-06; the
+headless test cannot reach them because Firefox lacks the File System Access API.
 
 Two browser caveats, not testable on the cluster: Chrome treats every `file://` page as one
 origin, so moving `reviewer.html` keeps the answers; Firefox may key storage to the file's

@@ -213,7 +213,7 @@ kbd { font: 12px ui-monospace, Menlo, Consolas, monospace; background: #2c3138; 
           <div id="confHelp" class="muted"></div>
         </div>
         <div class="navrow flagrow" id="rowFlag"><input type="checkbox" id="flag"><label for="flag">Flag this cell for discussion
-          <span class="muted">(<kbd>F</kbd>, or <kbd>1</kbd> yes / <kbd>2</kbd> no when highlighted)</span></label></div>
+          <span class="muted">(<kbd>F</kbd>; when highlighted <kbd>1</kbd> yes / <kbd>2</kbd> no, then on to notes)</span></label></div>
         <div class="navrow" id="rowNotes">
           <div class="sect">Notes</div>
           <textarea id="notes" placeholder="Anything else (T or ↓ to get here, Esc or ↑ at the start to leave, Ctrl+Enter to save)"></textarea>
@@ -270,7 +270,7 @@ kbd { font: 12px ui-monospace, Menlo, Consolas, monospace; background: #2c3138; 
     <tr><td><kbd>Y</kbd> <kbd>N</kbd> <kbd>U</kbd> or <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></td><td>Yes / No / Unsure for the highlighted question, then the highlight moves down</td></tr>
     <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>Move the highlight down the whole form: questions → score → flag → notes</td></tr>
     <tr><td><kbd>1</kbd>–<kbd>5</kbd></td><td>HRS score, while the score row is highlighted (it is highlighted automatically after the last question)</td></tr>
-    <tr><td><kbd>F</kbd></td><td>Flag for discussion (on/off)</td></tr>
+    <tr><td><kbd>F</kbd></td><td>Flag for discussion (on/off). When the flag row is highlighted, <kbd>F</kbd>, <kbd>1</kbd> (yes) or <kbd>2</kbd> (no) also move on into the notes box.</td></tr>
     <tr><td><kbd>T</kbd></td><td>Type a note (<kbd>Esc</kbd>, or <kbd>↑</kbd> at the start of the box, leaves it; <kbd>Ctrl</kbd>+<kbd>Enter</kbd> saves from inside it)</td></tr>
     <tr><td><kbd>Enter</kbd></td><td>Save and go to the next cell</td></tr>
     <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>Previous / next cell without saving (unsaved answers are kept as a draft)</td></tr>
@@ -916,7 +916,9 @@ document.addEventListener("keydown", e => {
   let ans = F.answers.find(a => a.key === k.toLowerCase());
   if (!ans && digit && digit <= F.answers.length && (onQ || onFlag)) ans = F.answers[digit - 1];
   if (ans && onQ) { answer(S.active, ans.value, true); e.preventDefault(); return; }
-  if (ans && onFlag && ans.value !== "unsure") { S.form.flag = ans.value === "yes"; changed(); e.preventDefault(); return; }
+  // on the flag row, 1/Y, 2/N and F set it and move on into the notes box
+  if (ans && onFlag && ans.value !== "unsure") { e.preventDefault(); S.form.flag = ans.value === "yes"; changed(); moveActive(1); return; }
+  if (onFlag && (k === "f" || k === "F")) { e.preventDefault(); S.form.flag = !S.form.flag; changed(); moveActive(1); return; }
   // the score takes digits only while its row is highlighted; elsewhere a stray digit does nothing
   if (digit && S.active === ROW.conf() && F.confidence.levels.some(l => l.value === digit)) {
     setConf(digit, true); e.preventDefault(); return; }

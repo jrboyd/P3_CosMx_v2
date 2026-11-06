@@ -226,11 +226,21 @@ def main():
         key("2")                                   # on the score row: 2 is the score, not "No"
         a = js("return {act: S.active, flag: ROW.flag(), conf: S.form.hrs_confidence};")
         check("on the score row a digit sets the score, highlight moves to flag", a["conf"] == 2 and a["act"] == a["flag"], a)
-        key("1")                                   # on the flag row: 1 = flag yes
+        key("1")                                   # on the flag row: 1 = flag yes, then into notes
+        a = js("return {act: S.active, notes: ROW.notes(), focus: document.activeElement.id, flag: S.form.flag, "
+               "text: document.getElementById('notes').value};")
+        check("flag row: 1 = yes and moves into the notes box (no stray '1' typed)", a["flag"] is True and
+              a["act"] == a["notes"] and a["focus"] == "notes" and a["text"] == "", a)
+        js("document.getElementById('notes').blur(); S.active = ROW.flag(); renderForm(); return 1;")
+        key("f")
+        a = js("return {act: S.active, notes: ROW.notes(), flag: S.form.flag};")
+        check("flag row: F toggles and moves into the notes box", a["flag"] is False and a["act"] == a["notes"], a)
+        js("document.getElementById('notes').blur(); S.active = ROW.flag(); renderForm(); return 1;")
+        key("1")                                   # flag back on for the record checks below
+        js("document.getElementById('notes').blur(); return 1;")
         key("ArrowDown")
-        a = js("return {act: S.active, notes: ROW.notes(), focus: document.activeElement.id, flag: S.form.flag};")
-        check("flag row takes 1 = yes; ArrowDown continues into the notes box", a["flag"] is True and
-              a["act"] == a["notes"] and a["focus"] == "notes", a)
+        a = js("return {act: S.active, notes: ROW.notes()};")
+        check("ArrowDown from notes stays on notes", a["act"] == a["notes"], a)
         js("document.getElementById('notes').blur(); return 1;")
         key("ArrowUp", "ArrowUp", "ArrowUp")
         a = js("return S.active;")

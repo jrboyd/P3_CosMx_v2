@@ -16,7 +16,7 @@ WHAT IS DELIBERATELY NOT ON THESE TILES, unlike the step-29 ROI PNGs:
 The cell's centroid is the window centre (within half a pixel; exact offset in rendered.csv).
 
 CONTRAST. Per slide, the 30th / 99th percentile of NON-ZERO pixels per channel (the rule of
-15_imagej_tiles.py), measured on 16 random matched-tier cells' windows chosen in stage 1 --
+15_imagej_tiles.py), measured on 48 um patches around 256 random matched-tier cells chosen in stage 1 (own seed) --
 so it does not depend on which cells are reviewed or on the bundle size. Per-slide, not one
 shared range: IB1 has a dim-membrane staining defect, and a shared range would make the
 slide recognisable and its cells harder to read. Channel G is not exported (marker unknown).
@@ -54,12 +54,15 @@ def log(m):
     print(m, flush=True)
 
 
-def window(z0, cx, cy):
-    x0, y0 = int(round(cx)) - N // 2, int(round(cy)) - N // 2
+def window(z0, cx, cy, n=N):
+    x0, y0 = int(round(cx)) - n // 2, int(round(cy)) - n // 2
     _, H, W = z0.shape
-    if x0 < 0 or y0 < 0 or x0 + N > W or y0 + N > H:
+    if x0 < 0 or y0 < 0 or x0 + n > W or y0 + n > H:
         return None, x0, y0
-    return np.asarray(z0[:, y0:y0 + N, x0:x0 + N]), x0, y0
+    return np.asarray(z0[:, y0:y0 + n, x0:x0 + n]), x0, y0
+
+
+RANGE_PATCH = 400          # px (~48 um) around each range cell: many locations, little I/O
 
 
 def blank_frac(arr):
@@ -70,19 +73,24 @@ def slide_ranges(z0, rows):
     samples = [[] for _ in CHANNELS]
     used = 0
     for r in rows:
-        arr, _, _ = window(z0, float(r["X_px"]), float(r["Y_px"]))
+        arr, _, _ = window(z0, float(r["X_px"]), float(r["Y_px"]), RANGE_PATCH)
         if arr is None or blank_frac(arr) > 0.5:
             continue
         used += 1
         for c in range(len(CHANNELS)):
-            v = arr[c, ::4, ::4].ravel()
+            v = arr[c, ::2, ::2].ravel()
             samples[c].append(v[v > 0])
-    if used < 8:
+    if used < 128:
         raise SystemExit("only %d usable range windows" % used)
     rng = {}
     for c, nm in enumerate(CHANNELS):
         nz = np.concatenate(samples[c])
         rng[nm] = (float(np.percentile(nz, LO_PCT)), float(np.percentile(nz, HI_PCT)))
+        # split-half check: the range must not depend on which windows were drawn
+        h = [np.concatenate(samples[c][k::2]) for k in (0, 1)]
+        hi = [float(np.percentile(x, HI_PCT)) for x in h]
+        log("    %-9s 99th pct split-half %.0f vs %.0f (%.0f%% apart)"
+            % (nm, hi[0], hi[1], 100 * abs(hi[0] - hi[1]) / rng[nm][1]))
     return rng, used
 
 
