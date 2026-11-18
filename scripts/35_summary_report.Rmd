@@ -84,7 +84,8 @@ RB1 if it is to be read as Hodgkin biology.
 The question in all of these steps is the same: **where are the Hodgkin–Reed–Sternberg (HRS)
 cells, and can anything on this panel identify them?** The answer changed four times. This
 report walks the four readouts in the order they were built, says what each established and
-where it stopped, and ends with the analysis that is running as this is written.
+where it stopped, and ends with the proposed pathologist review (section 8) and the analyses a
+reviewed set would make possible.
 
 <div class="verdict-mid">
 **The short version.** Per-cell HRS markers fail on this panel. A regional chemokine readout
@@ -302,8 +303,10 @@ not clearly drawn to it either.
 Step 29 produced 120 full-resolution ROI images of bright cells in six groups (high, medium
 and low brightness, each as a random draw and as the top HRS-leaning scores), with the
 chemokine density drawn as contour rings so that ring count reads as brightness, and a
-greyscale per-channel twin of each for a pathologist. This is the set that gap G2 of the
-manuscript plan — no morphological or protein confirmation — was waiting for.
+greyscale per-channel twin of each. They are for the project team. Their captions and rings
+carry the selection group, counts and score, so they cannot be the pathologist's review set
+for gap G2 of the manuscript plan (no morphological or protein confirmation). The blinded
+review built from the same cells is section 8.
 
 ```{r fig-roi, out.width="48%", fig.show="hold"}
 fig("roi_example.png"); fig("roi_example_gray.png")
@@ -641,6 +644,215 @@ and how often the dense-nucleus "anchor" is a bystander next to a pale-nucleus s
 cid 3505 shows happens — is what the anchor-rule follow-up and a stain have to answer.
 </div>
 
+# Pathologist review of the bright cells (proposed)
+
+```{r s8-data}
+## the bundle's own key (item -> cell, stratum) and the step-29 source table; nothing typed in
+kf <- sort(list.files(file.path(ROOT, "pathology_review_app/keys"), pattern = "^P3HRS-full.*_key\\.csv$"))
+KEY <- if (length(kf)) rd(file.path("pathology_review_app/keys", tail(kf, 1)), colClasses = c(repeat_of = "character")) else NULL
+BUNDLE <- if (length(kf)) sub("_key\\.csv$", "", tail(kf, 1)) else "P3HRS-full (not built)"
+SRC <- rd("output/29_bright_cells/source_cells.csv.gz", select = c("samp", "chemo"))
+orig <- if (!is.null(KEY)) KEY[is.na(repeat_of) | repeat_of == ""] else NULL
+nrep <- if (!is.null(KEY)) nrow(KEY) - nrow(orig) else NA
+ns <- function(s) if (!is.null(orig)) orig[stratum == s, .N] else NA
+nsrc <- function(s, lo, hi = Inf) if (!is.null(SRC)) SRC[samp == s & chemo >= lo & chemo < hi, .N] else NA
+wil <- function(k, n, z = 1.96) { p <- k / n; d <- 1 + z^2 / n
+  c((p + z^2 / (2 * n) - z * sqrt(p * (1 - p) / n + z^2 / (4 * n^2))) / d,
+    (p + z^2 / (2 * n) + z * sqrt(p * (1 - p) / n + z^2 / (4 * n^2))) / d) }
+w20 <- wil(10, 20)
+```
+
+Nothing computational in sections 2–7 can say whether a bright cell is an HRS cell. The
+morphology readouts disagree with the RNA (section 5), and the unit of analysis is often a
+fragment (section 7). The confirmation available short of a CD30/CD15 stain is a pathologist
+looking at the cells. This section describes how that review is set up so the answers can be
+trusted, what the first round can and cannot tell us, and what a reviewed set would make
+possible.
+
+## Why the step-29 images cannot be used for it
+
+The step-29 ROI images (section 4) carry their answer key: every caption prints the chemokine
+count, the HRS-leaning score and the selection group, the folder names do the same, and the
+density rings show brightness at a glance. A reviewer shown them would partly be reading our
+ranking back to us. The review tiles are cut fresh from the same OME-TIFFs with **no caption,
+no chemokine rings and no hotspot or FL outlines**. Rings are left off because the control
+cells would be the only tiles without them; outlines because RB1 has none, so they would
+identify the slide.
+
+## What the reviewer sees and records
+
+A single self-contained HTML file runs in the reviewer's own browser, with no installation and
+no network. It opens a data bundle (a zip of image tiles) through an ordinary file dialog. Each
+screen is one cell at the centre of a 150 µm window, with a crosshair. The reviewer can switch
+between a colour composite and the four stains in greyscale side by side, zoom and pan with all
+four panels kept in step, and adjust brightness per stain. Answers save automatically in the
+browser as the reviewer goes and are exported as a timestamped CSV to send back. Every save
+carries a session ID and timestamp, and a changed answer is kept as a new revision rather than
+overwriting the old one.
+
+```{r fig-8a, out.width="100%"}
+fig("review_app_form.png")
+```
+
+```{r fig-8b, out.width="100%"}
+fig("review_app_grid.png")
+```
+
+Per cell, the form asks:
+
+| Item | Answers |
+|---|---|
+| Image adequate to judge this cell (gate: *No* skips the rest) | Yes / No |
+| Crosshair sits on one identifiable cell | Yes / No / Unsure |
+| Large cell (≥ ~3× a small lymphocyte's diameter) | Yes / No / Unsure |
+| Multinucleated or multilobed nucleus | Yes / No / Unsure |
+| Prominent nucleolus | Yes / No / Unsure |
+| Pale / vesicular chromatin | Yes / No / Unsure |
+| CD45-negative or dim relative to neighbours | Yes / No / Unsure |
+| Rosette of CD45-bright small lymphocytes | Yes / No / Unsure |
+| Morphology consistent with an HRS cell | 1 not HRS · 2 probably not · 3 indeterminate · 4 probably · 5 definitely HRS-compatible |
+| Flag for discussion; free-text notes | |
+
+*Unsure* and the adequacy gate are there because blur and fixation artefact are common in
+these images: section 5 found pale chromatin cannot be told from slight defocus in one plane,
+and a forced yes/no would turn that into guesses. The 1–5 scale is about **morphology only**.
+The defining stains (CD30, CD15, PAX5, MUM1 protein) are not on the slide, and with no CD3
+stain a "rosette" means CD45-bright small lymphocytes, not proven T cells. The whole form is
+answerable from the keyboard.
+
+**The crosshair item matters because of section 7.** Each tile is centred on a vendor
+polygon's centroid, and for a carved source that polygon is often a fragment. The reviewer
+judges the cell the crosshair is on. A tile where that is impossible is an answer in its own
+right, and the rate of *No* on that item, by stratum, is a direct measure of how often the
+segmentation unit fails to be a cell.
+
+## Round 1: which criteria find HRS-compatible cells
+
+Round 1 is a **sample** of each selection criterion, not a review of every candidate. Its job
+is to estimate, for each criterion, what fraction of its cells look HRS-compatible, and to set
+that against cells no criterion would select.
+
+```{r s8-design}
+if (!is.null(orig)) {
+  lab <- c(IB1_high_random = "IB1 ≥ 100 counts, random", IB1_high_hrs = "IB1 ≥ 100 counts, top HRS-leaning score",
+           IB1_medium_random = "IB1 50–99, random", IB1_medium_hrs = "IB1 50–99, top score",
+           IB1_low_random = "IB1 10–49, random", IB1_low_hrs = "IB1 10–49, top score",
+           IB1_control = "IB1 controls: < 10 counts, matched on area and depth",
+           `RB1_50-99` = "RB1 50–99 (all non-overlapping)", `RB1_10-49_hrs` = "RB1 10–49, top score",
+           `RB1_10-49_rand` = "RB1 10–49, random", RB1_control = "RB1 controls: < 10 counts, matched")
+  d <- orig[, .N, by = stratum][match(names(lab), stratum)][!is.na(stratum)]
+  kb(d[, .(stratum = lab[stratum], cells = N)],
+     caption = sprintf("Bundle %s: %d cells plus %d planned repeats = %d items. Counts from its key file.",
+                       BUNDLE, nrow(orig), nrep, nrow(KEY)))
+}
+```
+
+How the bundle is built:
+
+- **Blinded.** Items carry random four-character IDs. Nothing in the bundle names a cell,
+  sample, stratum, count or score; the key stays with us.
+- **Randomised order.** Order is random but stratified, so every stretch of the review mixes all
+  strata. Reading order cannot track brightness or sample, so fatigue and drifting thresholds
+  fall evenly on every group.
+- **Planned repeats.** About 10% of cells are shown a second time, at least a third of the
+  bundle later and under a new ID. That measures how consistent the reader is with themselves.
+- **Display contrast.** Each slide gets one fixed display range, set from 256 random locations
+  on that slide. IB1's membrane staining defect means a shared range would make the slide both
+  recognisable and harder to read.
+- **Controls.** Each control is matched to a candidate of the same slide on area (±10%) and
+  depth (±15%). Large cells are scarce, so a few take the nearest available match, and the key
+  records which.
+
+The comparisons the design supports:
+
+1. **Does HRS-compatible morphology rise with chemokine brightness?** High vs medium vs low,
+   random draws.
+2. **Does the RNA score add anything beyond brightness?** Top score vs random within a tier.
+   The top-score groups describe the upper tail of each tier, not its average.
+3. **What is the background rate?** Candidates vs matched controls. Without the controls a
+   "yes" rate has nothing to be compared with: any lymphoid field holds some large pale cells.
+4. **Is it Hodgkin-specific?** IB1 vs RB1 at matched brightness. RB1 has no Hodgkin
+   component, so its HRS-compatible rate is the false-positive rate of the read itself.
+
+**What 20 cells can resolve.** A proportion from 20 cells has a wide interval: 10 of 20 is
+`r pct(0.5, 0)` [`r pct(w20[1], 0)`, `r pct(w20[2], 0)`] (Wilson 95%). Round 1 separates
+criteria that differ by around 40 points, say 20% from 60%, not 40% from 55%. It is also one
+reader on one patient. A second reader on the same bundle would add between-reader agreement
+at no extra build cost.
+
+## Round 2: what to review after round 1
+
+```{r s8-tiers}
+t100 <- nsrc("IB1", 100); t50 <- nsrc("IB1", 50, 100); t10 <- nsrc("IB1", 10, 50); r50 <- nsrc("RB1", 50)
+```
+
+Whether to review **every** cell meeting a successful criterion depends on how many there are
+and on what the analysis needs. Before removing overlapping windows, IB1 has
+**`r fmt(t100, 0)`** cells at ≥ 100 counts, **`r fmt(t50, 0)`** at 50–99 and
+**`r fmt(t10, 0)`** at 10–49. RB1 has only `r fmt(r50, 0)` at ≥ 50. Round 1 holds
+`r ns("RB1_50-99")` of them; the rest sit inside another selected cell's window, and showing
+them would put the same tissue in front of the reviewer twice.
+
+- **Exhaustive review is realistic for the ≥ 100 tier only**: about `r fmt(t100, 0)` cells,
+  one or two sessions. It is the route if the analysis needs a call on every individual cell,
+  for example a list of confirmed cells, their map, or figure examples.
+- **For the lower tiers, review a random subsample sized to the analysis.** Analyses about
+  a population (how HRS-like bright cells differ from the rest, where they sit) do not need
+  every cell labelled. They need enough labelled cells, or the criterion's round-1 yield
+  carried as a known error rate.
+- **Round 2 uses fresh cells.** A criterion chosen because it scored well on the round-1 cells
+  will look better on those same cells than it is. Round 2 draws cells not seen in round 1, and
+  keeps the blinding and the matched controls so its rate is a clean estimate.
+- **Plan for the outcome where no criterion scores well.** Section 5 found morphology-HRS-like
+  and RNA-HRS-like to be mostly different cells. A uniformly low yield would settle that
+  question in favour of "the chemokine programme is not carried by morphologically HRS cells
+  here", which is a result, not a failed review.
+- **The pathologist's time per cell sets the budget.** The app records it per cell; the
+  50-cell test bundle will give the number before round 2 is sized.
+
+**Status.** The app, a 50-cell test bundle and the full round-1 bundle (`r BUNDLE`) are built.
+The app is tested end to end in a headless browser on the cluster and by hand in Chrome and
+Edge. Code, layout and the build command are in `pathology_review_app/README.md`. Returned
+CSVs are unblinded by `pathology_review_app/ingest/ingest_reviews.R`.
+
+## Analyses a reviewed set would open up
+
+A set of bright cells with a pathologist's call on each turns several questions this report
+had to leave open into direct comparisons. In rough order of how directly they follow:
+
+1. **An operational HRS definition with a known error rate.** The round-1 yields by criterion,
+   against controls and against RB1, give the precision of each candidate rule. That precision
+   is what any later "HRS cell" claim from this panel has to carry.
+2. **The RNA of morphologically HRS-like cells, against bright cells that are not.** Compared
+   at matched brightness and depth, this asks the question sections 4 and 5 could only answer
+   indirectly: does the IL13 / BATF3 / TNFRSF8 / IRF4 programme belong to the cells that look
+   like HRS cells, or to their neighbours? It is partly circular whenever the selection rule
+   used those genes, so it should be reported with and without them, per the project
+   convention.
+3. **Validating or retiring the computational morphology readouts.** Step 31's dim CD45
+   centre, step 34's pale-filled polygon and step 35/36's composite membership can each be
+   scored against the reviewer's calls. Any readout that agrees could then be applied to every
+   cell, which no reviewer can do.
+4. **The segmentation question.** Do HRS-compatible calls, and *No* on "one identifiable
+   cell", concentrate in multi-polygon composites and one-cloud pairs? If so, the composite,
+   not the polygon, is the right unit for HRS RNA profiles. That points to merging composites,
+   or re-segmenting the image around large nuclei, before any per-cell HRS analysis.
+5. **Where the HRS-like cells sit and what surrounds them.** Their positions relative to the
+   FL foci, the chemokine field and the hotspots, using real cells instead of the chemokine
+   proxy. Section 3 showed the hotspots miss most isolated bright cells. The neighbourhood
+   composition around confirmed cells (CCR4⁺ T cells, CD4 vs CD8, macrophages) is
+   the rosette question asked with RNA. Any neighbourhood result must be read against the
+   leakage controls of step 18, since transcripts leak toward marker-rich neighbours.
+6. **PD-L1 at the cell level.** Whether *CD274* / *PDCD1LG2* are higher in confirmed
+   HRS-like cells than in matched bright non-HRS cells, and on the cells around them. That is
+   step 17's checkpoint question, asked of identified cells instead of regions.
+7. **The unresolved field residual.** Far from every hotspot, IB1's chemokine background is
+   still ~4× RB1's, and whether that is a slide offset or diffuse sub-threshold HRS cells is
+   open. Most bright cells sit outside the hotspots (section 3). If reviewed cells far from
+   every hotspot are HRS-compatible at a rate above RB1's, that is direct evidence for the
+   second reading. Twenty cells per group will not settle it, so this one needs a round-2
+   sample drawn by distance to the nearest hotspot.
+
 # What is and is not established
 
 <div class="verdict-ok">
@@ -653,9 +865,9 @@ dendritic-cell lineage programme; the hotspots are a density detector that misse
 **Not established.** That any cell is an HRS cell. Nothing on this panel can make that
 identification: the defining stains (CD30, CD15, PAX5, MUM1 protein) are not on the slide,
 and the morphology readouts available — CD45 context and DNA — point away from the cells the
-RNA points to. The fragment reconstruction is the last computational step that can move this;
-after it, the remaining cost of gap G2 is a pathologist's time on the review set, or a
-CD30/CD15 stain on a serial section.
+RNA points to. The fragment reconstruction (section 7) was the last computational step that
+could move this. What remains for gap G2 is a pathologist's time on the blinded review set
+(section 8), or a CD30/CD15 stain on a serial section.
 </div>
 
 <details><summary>Artifacts this report was built from</summary>
