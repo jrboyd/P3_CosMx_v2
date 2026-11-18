@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Build a pathology review bundle end to end, as a chain of SLURM jobs.
 #
-#   bash pathology_review_app/build/submit_build.sh test    # 50 items, ~10 min
-#   bash pathology_review_app/build/submit_build.sh full    # ~220 items, ~40 min
+#   bash pathology_review_app/build/submit_build.sh test    # 50 items, ~30 min
+#   bash pathology_review_app/build/submit_build.sh full    # ~217 items, ~70 min (image reads dominate)
 #
 # select (R, 16-24G) -> render (python, image reads from scratch) -> bundle (stdlib) ->
 # headless-Firefox end-to-end test of the bundle. Run from the project root.

@@ -723,7 +723,7 @@ build command and design rationale. What is easy to walk back into:
 - **Bright cells cluster, so non-overlapping windows need backups**: drawing only the 20
   step-29 ROI cells per group left the full bundle 14 short; stage 1 now takes step 29's 60
   ranked candidates per group. RB1 has only 9 cells >= 50 and 3 overlap, so that stratum is 6.
-- **Bundles**: test `P3HRS-test50-20261106-1210` (45 cells + 5 repeats: 24 IB1 candidates,
+- **Bundles**: full `P3HRS-full217-20261106-1244` (197 cells + 20 repeats, 228 MB; 2 of 240 controls fell back to nearest match). Test `P3HRS-test50-20261106-1210` (45 cells + 5 repeats: 24 IB1 candidates,
   10 IB1 controls, 6 RB1 candidates, 5 RB1 controls). `P3HRS-test50-20261106-1038` is the
   earlier test bundle (old 16-window range); its key is kept in case it was sent.
 - **Browser testing works on this cluster without installing anything**: `/usr/bin/firefox`
